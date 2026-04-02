@@ -1,0 +1,19 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "gcw-bxgy-discount"
+handle = "gcw-bxgy-discount"
+
+uid = "b8d4e012-9c3f-5e2b-af60-7d9b1c4e3f20506a"
+
+type = "function"
+description = "Buy X items, get Y items at a discounted price (BXGY)"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "input.graphql"
+  export = "run"
+
+  [extensions.build]
+  command = "cargo build --release --target wasm32-unknown-unknown"
+  path = "./target/wasm32-unknown-unknown/release/gcw_bxgy_discount.wasm"

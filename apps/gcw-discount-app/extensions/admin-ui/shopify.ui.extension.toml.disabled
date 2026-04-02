@@ -1,0 +1,19 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "GCW Discount Manager"
+handle = "gcw-discount-admin"
+
+uid = "a68c10aa-02bd-ec86-d292-815a2c31870d5bb5db6c"
+
+type = "ui_extension"
+description = "Admin UI for managing Shopify discount functions"
+
+  [[extensions.targeting]]
+  target = "admin_home_card"
+  module = "./src/index.tsx"
+
+  [extensions.build]
+  command = "npm run build"
+  path = "dist"
+

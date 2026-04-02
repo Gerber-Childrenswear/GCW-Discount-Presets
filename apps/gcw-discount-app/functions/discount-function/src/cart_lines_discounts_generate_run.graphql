@@ -1,0 +1,37 @@
+query Input {
+  cart {
+    lines {
+      id
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          product {
+            id
+            title
+            tags
+            metafield(namespace: "gcw_discount_manager", key: "discount_config") {
+              value
+            }
+          }
+        }
+      }
+      quantity
+    }
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
+    buyerIdentity {
+      customer {
+        id
+      }
+    }
+  }
+  discountNode {
+    metafield(namespace: "gcw_discount_manager", key: "discount_config") {
+      value
+    }
+  }
+}

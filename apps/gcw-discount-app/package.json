@@ -1,0 +1,33 @@
+{
+  "name": "@gerber-childrenswear/gcw-discount-app",
+  "version": "1.0.0",
+  "description": "Shopify app for managing discounts with 25% off rule engine and admin UI",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "shopify app dev",
+    "build": "shopify app build",
+    "deploy": "shopify app deploy",
+    "server": "node server.js",
+    "server:dev": "nodemon server.js",
+    "test": "cd functions/discount-function && cargo test --lib && cd ../..",
+    "format": "prettier --write .",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
+  },
+  "devDependencies": {
+    "@shopify/app": "^3.58.0",
+    "@shopify/cli": "^3.58.0",
+    "nodemon": "^3.0.0",
+    "prettier": "^3.0.0"
+  },
+  "dependencies": {
+    "@shopify/ui-extensions-react": "^2024.10.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.2.0"
+  }
+}

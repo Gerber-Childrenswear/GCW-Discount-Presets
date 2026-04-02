@@ -1,0 +1,19 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "90801d82aee587c2d48c4f641d44f0bf"
+name = "GCW Discount Presets"
+application_url = "https://gcw-dev.onrender.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-07"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_discounts,write_discounts,read_functions,write_functions,read_users,read_orders,read_products"
+
+[auth]
+redirect_urls = [ "https://gcw-dev.onrender.com/api/auth/callback" ]

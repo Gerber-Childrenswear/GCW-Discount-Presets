@@ -1,0 +1,15 @@
+[phases.setup]
+nixPkgs = ['nodejs-22_x']
+aptPkgs = []
+
+[phases.install]
+cmds = ['cd web && npm ci --only=production']
+
+[phases.build]
+cmds = []
+
+[start]
+cmd = 'cd web && npm start'
+
+[variables]
+NODE_ENV = 'production'

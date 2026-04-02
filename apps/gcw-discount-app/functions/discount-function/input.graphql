@@ -1,0 +1,25 @@
+query Input {
+  cart {
+    discountCodes {
+      code
+    }
+    lines {
+      quantity
+      merchandise {
+        id
+        product {
+          productType
+          tags
+        }
+      }
+    }
+  }
+  shop {
+    metafields(namespace: "gcw_discount", first: 1) {
+      nodes {
+        key
+        value
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+query Input {
+  cart {
+    deliveryGroups {
+      deliveryOptions {
+        handle
+      }
+    }
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
+  }
+  discountNode {
+    metafield(namespace: "gcw_discount_manager", key: "discount_config") {
+      value
+    }
+  }
+}

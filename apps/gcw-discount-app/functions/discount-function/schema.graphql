@@ -1,0 +1,85 @@
+schema {
+  query: Input
+}
+
+scalar Decimal
+scalar ID
+
+enum LanguageCode {
+  EN
+}
+
+enum CountryCode {
+  US
+}
+
+enum CurrencyCode {
+  USD
+}
+
+"""
+The input object for the function.
+"""
+type Input {
+  cart: Cart!
+}
+
+type Cart {
+  lines: [CartLine!]!
+  discountCodes: [DiscountCode!]!
+}
+
+type DiscountCode {
+  code: String!
+}
+
+type CartLine {
+  quantity: Int!
+  merchandise: ProductVariant!
+}
+
+type ProductVariant {
+  id: ID!
+  product: Product!
+}
+
+type Product {
+  productType: String
+  tags: [String!]!
+}
+
+"""
+The output of the function.
+"""
+type FunctionRunResult {
+  discounts: [Discount!]!
+  discountApplicationStrategy: DiscountApplicationStrategy!
+}
+
+enum DiscountApplicationStrategy {
+  FIRST
+  MAXIMUM
+}
+
+type Discount {
+  message: String
+  targets: [Target!]!
+  value: Value!
+}
+
+type Target {
+  productVariant: ProductVariantTarget
+}
+
+type ProductVariantTarget {
+  id: ID!
+  quantity: Int
+}
+
+type Value {
+  percentage: Percentage
+}
+
+type Percentage {
+  value: Decimal!
+}

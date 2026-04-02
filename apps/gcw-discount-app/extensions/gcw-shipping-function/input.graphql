@@ -1,0 +1,25 @@
+query Input {
+  discount {
+    metafield(namespace: "gcw", key: "shipping_config") {
+      value
+    }
+  }
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+    }
+    deliveryGroups {
+      id
+      deliveryOptions {
+        handle
+        title
+        cost {
+          amount
+        }
+      }
+    }
+  }
+}

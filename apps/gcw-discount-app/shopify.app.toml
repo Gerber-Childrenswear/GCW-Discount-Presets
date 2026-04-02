@@ -1,0 +1,21 @@
+client_id = "0b2fb6e18c009c93349bfcd6636be0cd"
+name = "GCW Discount Presets"
+application_url = "https://gcw-dev.onrender.com"
+embedded = true
+
+[access_scopes]
+scopes = "read_discounts,write_discounts,read_orders,read_products"
+
+[auth]
+redirect_urls = ["https://gcw-dev.onrender.com/api/auth/callback"]
+
+[build]
+dev = "npm run dev"
+build = "npm run build"
+
+[webhooks]
+api_version = "2025-07"
+
+[[webhooks.subscriptions]]
+topics = ["orders/create", "orders/updated"]
+uri = "/api/webhooks/orders"

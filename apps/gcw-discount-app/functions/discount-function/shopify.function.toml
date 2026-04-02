@@ -1,0 +1,8 @@
+name = "discount-function"
+description = "25% off discount function with configurable rules, exclusions, and privacy compliance"
+extension_points = ["discounts"]
+runtime = "rust"
+
+[build]
+command = "cargo build --release --target=wasm32-unknown-unknown"
+path = "target/wasm32-unknown-unknown/release/gcw_discount_function.wasm"

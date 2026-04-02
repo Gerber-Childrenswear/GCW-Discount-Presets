@@ -1,0 +1,16 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "GCW Discount Checkout Message"
+handle = "gcw-discount-checkout-message"
+
+uid = "1769feac-7265-3e27-458d-70eea998596a030e214b"
+
+type = "ui_extension"
+
+  [[extensions.targeting]]
+  target = "purchase.checkout.block.render"
+  module = "./src/index.jsx"
+
+  [extensions.capabilities]
+  api_access = true

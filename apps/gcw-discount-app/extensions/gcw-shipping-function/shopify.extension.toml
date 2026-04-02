@@ -1,0 +1,21 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "gcw-shipping-function"
+handle = "gcw-shipping-function"
+
+
+uid = "1a24a921-4f81-3db2-fcdf-31ee91ea200f5e6b610e"
+
+
+type = "function"
+description = "Free shipping when cart total meets minimum threshold"
+
+  [[extensions.targeting]]
+  target = "cart.delivery-options.discounts.generate.run"
+  input_query = "input.graphql"
+  export = "run"
+
+  [extensions.build]
+  command = "cargo build --release --target wasm32-unknown-unknown"
+  path = "./target/wasm32-unknown-unknown/release/gcw_shipping_function.wasm"

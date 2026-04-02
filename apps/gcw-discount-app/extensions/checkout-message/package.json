@@ -1,0 +1,8 @@
+{
+  "name": "gcw-discount-checkout-message",
+  "private": true,
+  "dependencies": {
+    "@shopify/ui-extensions-react": "^2025.7.0",
+    "react": "^18.0.0"
+  }
+}

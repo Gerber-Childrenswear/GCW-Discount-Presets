@@ -1,0 +1,21 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "gcw-discount-function"
+handle = "gcw-discount-function"
+
+
+uid = "fb2568a5-f5dd-fd51-88d7-cea0aba5928079e7ea62"
+
+
+type = "function"
+description = "Sitewide percentage off with exclusions and stacking guard"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "input.graphql"
+  export = "run"
+
+  [extensions.build]
+  command = "cargo build --release --target wasm32-unknown-unknown"
+  path = "./target/wasm32-unknown-unknown/release/gcw_discount_function.wasm"

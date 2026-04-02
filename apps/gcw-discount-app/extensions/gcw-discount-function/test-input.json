@@ -1,0 +1,104 @@
+{
+  "discount": {
+    "metafield": {
+      "value": "{\"percentage\":25,\"message\":\"Extra 25% Off Applied!\",\"exclude_gift_cards\":true,\"included_tags\":[\"discount\",\"sale\"],\"exclude_tags\":[],\"exclude_product_types\":[],\"exclude_vendors\":[],\"exclude_product_ids\":[]}"
+    }
+  },
+  "cart": {
+    "lines": [
+      {
+        "id": "gid://shopify/CartLine/1",
+        "quantity": 2,
+        "merchandise": {
+          "__typename": "ProductVariant",
+          "id": "gid://shopify/ProductVariant/111",
+          "product": {
+            "id": "gid://shopify/Product/100",
+            "productType": "Onesie",
+            "isGiftCard": false,
+            "vendor": "Gerber",
+            "tagChecks": [
+              { "hasTag": true, "tag": "discount" },
+              { "hasTag": false, "tag": "sale" },
+              { "hasTag": false, "tag": "clearance" },
+              { "hasTag": false, "tag": "markdown" },
+              { "hasTag": false, "tag": "promo" },
+              { "hasTag": false, "tag": "special" },
+              { "hasTag": false, "tag": "new" },
+              { "hasTag": false, "tag": "featured" },
+              { "hasTag": false, "tag": "bundle" },
+              { "hasTag": false, "tag": "exclusive" },
+              { "hasTag": false, "tag": "seasonal" },
+              { "hasTag": false, "tag": "summer" },
+              { "hasTag": false, "tag": "winter" },
+              { "hasTag": false, "tag": "spring" },
+              { "hasTag": false, "tag": "fall" }
+            ]
+          }
+        }
+      },
+      {
+        "id": "gid://shopify/CartLine/2",
+        "quantity": 1,
+        "merchandise": {
+          "__typename": "ProductVariant",
+          "id": "gid://shopify/ProductVariant/222",
+          "product": {
+            "id": "gid://shopify/Product/200",
+            "productType": "Gift Card",
+            "isGiftCard": true,
+            "vendor": "Gerber",
+            "tagChecks": [
+              { "hasTag": false, "tag": "discount" },
+              { "hasTag": false, "tag": "sale" },
+              { "hasTag": false, "tag": "clearance" },
+              { "hasTag": false, "tag": "markdown" },
+              { "hasTag": false, "tag": "promo" },
+              { "hasTag": false, "tag": "special" },
+              { "hasTag": false, "tag": "new" },
+              { "hasTag": false, "tag": "featured" },
+              { "hasTag": false, "tag": "bundle" },
+              { "hasTag": false, "tag": "exclusive" },
+              { "hasTag": false, "tag": "seasonal" },
+              { "hasTag": false, "tag": "summer" },
+              { "hasTag": false, "tag": "winter" },
+              { "hasTag": false, "tag": "spring" },
+              { "hasTag": false, "tag": "fall" }
+            ]
+          }
+        }
+      },
+      {
+        "id": "gid://shopify/CartLine/3",
+        "quantity": 3,
+        "merchandise": {
+          "__typename": "ProductVariant",
+          "id": "gid://shopify/ProductVariant/333",
+          "product": {
+            "id": "gid://shopify/Product/300",
+            "productType": "Sleeper",
+            "isGiftCard": false,
+            "vendor": "Gerber",
+            "tagChecks": [
+              { "hasTag": false, "tag": "discount" },
+              { "hasTag": false, "tag": "sale" },
+              { "hasTag": false, "tag": "clearance" },
+              { "hasTag": false, "tag": "markdown" },
+              { "hasTag": false, "tag": "promo" },
+              { "hasTag": false, "tag": "special" },
+              { "hasTag": false, "tag": "new" },
+              { "hasTag": false, "tag": "featured" },
+              { "hasTag": false, "tag": "bundle" },
+              { "hasTag": false, "tag": "exclusive" },
+              { "hasTag": false, "tag": "seasonal" },
+              { "hasTag": false, "tag": "summer" },
+              { "hasTag": false, "tag": "winter" },
+              { "hasTag": false, "tag": "spring" },
+              { "hasTag": false, "tag": "fall" }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

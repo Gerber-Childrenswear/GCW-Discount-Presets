@@ -1,0 +1,18 @@
+api_version = "2024-10"
+
+[[extensions]]
+name = "GCW Discount Function"
+handle = "gcw-discount-function"
+type = "function"
+uid = "bcea0c8a-eb82-a100-b321-a435eeb1e45cea68e7e5"
+description = "25% off discount function with tag exclusions and discount code filtering"
+
+  [[extensions.targeting]]
+  target = "purchase.product-discount.run"
+  input_query = "input.graphql"
+  export = "run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/gcw_discount_function.wasm"
+  watch = [ "src/**/*.rs" ]

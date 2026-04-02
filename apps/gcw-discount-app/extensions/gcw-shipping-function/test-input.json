@@ -1,0 +1,32 @@
+{
+  "discount": {
+    "metafield": {
+      "value": "{\"threshold\": 50, \"message\": \"Free shipping on orders $50+!\"}"
+    }
+  },
+  "cart": {
+    "cost": {
+      "subtotalAmount": {
+        "amount": "75.00",
+        "currencyCode": "USD"
+      }
+    },
+    "deliveryGroups": [
+      {
+        "id": "gid://shopify/CartDeliveryGroup/0",
+        "deliveryOptions": [
+          {
+            "handle": "standard-shipping",
+            "title": "Standard Shipping",
+            "cost": { "amount": "7.99" }
+          },
+          {
+            "handle": "express-shipping",
+            "title": "Express Shipping",
+            "cost": { "amount": "14.99" }
+          }
+        ]
+      }
+    ]
+  }
+}

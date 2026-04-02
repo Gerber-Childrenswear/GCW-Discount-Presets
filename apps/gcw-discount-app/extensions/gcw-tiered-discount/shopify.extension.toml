@@ -1,0 +1,19 @@
+api_version = "2025-07"
+
+[[extensions]]
+name = "gcw-tiered-discount"
+handle = "gcw-tiered-discount"
+
+uid = "a7c3f901-8b2e-4d1a-9e5f-6c8a0b3d2e1f4a5b"
+
+type = "function"
+description = "Tiered percentage discounts based on cart total or quantity thresholds"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "input.graphql"
+  export = "run"
+
+  [extensions.build]
+  command = "cargo build --release --target wasm32-unknown-unknown"
+  path = "./target/wasm32-unknown-unknown/release/gcw_tiered_discount.wasm"

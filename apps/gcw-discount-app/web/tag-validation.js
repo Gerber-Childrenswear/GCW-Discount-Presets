@@ -10,7 +10,6 @@ export const AVAILABLE_FUNCTION_TAGS = [
   'sleepwear', 'onesies', 'bodysuits', 'sets', 'accessories',
   'final-sale', 'no-return', 'preorder', 'backorder', 'new-arrival',
   '25-off', '30-off', '40-off', '50-off', 'free-gift',
-  'no discount', 'no discount:strict',
 ];
 
 export const AVAILABLE_BXGY_TAGS = AVAILABLE_FUNCTION_TAGS;

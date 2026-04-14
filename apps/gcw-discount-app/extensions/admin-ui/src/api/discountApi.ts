@@ -120,4 +120,21 @@ export class DiscountAPI {
       throw new Error('Failed to deploy discount');
     }
   }
+
+  async fetchProductTags(): Promise<string[]> {
+    try {
+      const response = await fetchJSON<{ success: boolean; data: string[]; cached?: boolean }>(
+        '/product-tags'
+      );
+      if (!response.success) {
+        throw new Error('Failed to fetch product tags');
+      }
+      return response.data || [];
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`Failed to load product tags: ${error.message}`);
+      }
+      throw new Error('Failed to load product tags');
+    }
+  }
 }

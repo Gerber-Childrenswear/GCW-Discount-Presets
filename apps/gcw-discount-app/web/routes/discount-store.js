@@ -411,6 +411,70 @@ router.get('/api/discounts', requireViewer, (req, res) => {
   }
 });
 
+// Cache for product tags (5 minutes)
+const tagCache = { tags: [], expiresAt: 0 };
+
+router.get('/api/product-tags', requireViewer, async (req, res) => {
+  try {
+    const { shop, accessToken } = await getOrExchangeToken(req);
+    
+    if (!shop) {
+      return res.status(401).json({ error: 'Missing shop parameter' });
+    }
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Missing Shopify access token' });
+    }
+
+    // Check cache first
+    const now = Date.now();
+    if (tagCache.tags.length > 0 && now < tagCache.expiresAt) {
+      return res.json({ success: true, data: tagCache.tags, cached: true });
+    }
+
+    const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+    
+    // Fetch product tags using Admin GraphQL API
+    const query = `
+      query {
+        productTags(first: 100) {
+          edges {
+            node
+          }
+        }
+      }
+    `;
+
+    const response = await fetch(graphqlUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken,
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || result.errors) {
+      const errorMsg = result.errors?.[0]?.message || 'Failed to fetch product tags';
+      return res.status(400).json({ error: errorMsg });
+    }
+
+    // Extract unique tags from productTags edges
+    const tags = result.data?.productTags?.edges?.map(edge => edge.node) || [];
+    const uniqueTags = Array.from(new Set(tags)).sort();
+
+    // Update cache (5 minutes = 300000 milliseconds)
+    tagCache.tags = uniqueTags;
+    tagCache.expiresAt = now + 300000;
+
+    res.json({ success: true, data: uniqueTags, cached: false });
+  } catch (error) {
+    reportError(error, { area: 'product_tags_fetch' });
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post('/api/discount/create', requireBuilder, async (req, res) => {
   try {
     const { settings, activateNow } = req.body;

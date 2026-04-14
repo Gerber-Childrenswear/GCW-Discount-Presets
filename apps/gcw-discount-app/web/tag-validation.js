@@ -19,7 +19,7 @@ export function validateTags(tags, allowedTags = AVAILABLE_FUNCTION_TAGS) {
   const allowed = new Set(allowedTags.map(t => t.toLowerCase()));
   const invalid = tags.filter(t => !allowed.has(t.toLowerCase().trim()));
   const warnings = invalid.map(t => `Tag "${t}" is not in the function's hasTags() list and will be ignored at runtime`);
-  return { valid: true, invalid, warnings };
+  return { valid: invalid.length === 0, invalid, warnings };
 }
 
 export const AVAILABLE_FUNCTION_VENDORS = [

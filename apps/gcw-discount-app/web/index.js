@@ -83,8 +83,29 @@ setInterval(() => {
     rateLimitStore[key] = rateLimitStore[key].filter(ts => now - ts < RATE_LIMIT_WINDOW);
     if (rateLimitStore[key].length === 0) delete rateLimitStore[key];
   }
+  for (const key of Object.keys(heavyRateLimitStore)) {
+    heavyRateLimitStore[key] = heavyRateLimitStore[key].filter(ts => now - ts < 60000);
+    if (heavyRateLimitStore[key].length === 0) delete heavyRateLimitStore[key];
+  }
 }, 300000);
 app.use(rateLimit);
+
+// Stricter per-user rate limiter for expensive endpoints (GraphQL searches, deploys)
+const heavyRateLimitStore = {};
+function heavyRateLimit(maxPerMinute) {
+  return (req, res, next) => {
+    const key = req.ip || req.connection.remoteAddress || 'unknown';
+    const now = Date.now();
+    if (!heavyRateLimitStore[key]) heavyRateLimitStore[key] = [];
+    heavyRateLimitStore[key] = heavyRateLimitStore[key].filter(ts => now - ts < 60000);
+    if (heavyRateLimitStore[key].length >= maxPerMinute) {
+      res.set('Retry-After', '60');
+      return res.status(429).json({ success: false, error: 'Rate limit exceeded for this endpoint. Please wait.' });
+    }
+    heavyRateLimitStore[key].push(now);
+    next();
+  };
+}
 
 // Handle empty POST bodies with Content-Type: application/json gracefully
 // (prevents body-parser from returning 400 on JSON.parse(''))
@@ -117,7 +138,7 @@ app.use((req, res, next) => {
   const shopOrigin = `https://${shop.replace(/[^a-zA-Z0-9.\-]/g, '')}`;
   res.header(
     'Content-Security-Policy',
-    `frame-ancestors https://admin.shopify.com ${shopOrigin};`
+    `default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.shopify.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://*.shopify.com https://*.myshopify.com; frame-ancestors https://admin.shopify.com ${shopOrigin}`
   );
   // Security best-practice headers (Shopify 2025-07 guidelines)
   res.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
@@ -226,7 +247,7 @@ async function assertAppManagedDiscountForDelete(shop, accessToken, discountId, 
   return { ok: true, appManagedKeys };
 }
 
-app.post('/api/function-engine/deploy', requireAdmin, async (req, res) => {
+app.post('/api/function-engine/deploy', requireAdmin, heavyRateLimit(5), async (req, res) => {
   try {
     const {
       title, percentage, message, included_tags, exclude_tags,
@@ -237,6 +258,11 @@ app.post('/api/function-engine/deploy', requireAdmin, async (req, res) => {
 
     if (!title || !percentage) {
       return res.status(400).json({ error: 'Title and percentage are required.' });
+    }
+
+    const pctNum = Number(percentage);
+    if (!Number.isFinite(pctNum) || pctNum <= 0 || pctNum > 100) {
+      return res.status(400).json({ error: 'Percentage must be a number between 0.01 and 100.' });
     }
 
     // Validate tags — warn if any aren't in the function's hasTags() list
@@ -297,8 +323,8 @@ app.post('/api/function-engine/deploy', requireAdmin, async (req, res) => {
 
     // 2. Build the config metafield
     const functionConfig = {
-      percentage: Number(percentage),
-      message: message || `Extra ${percentage}% Off Applied!`,
+      percentage: pctNum,
+      message: message || `Extra ${pctNum}% Off Applied!`,
       exclude_gift_cards: exclude_gift_cards !== false,
       included_tags: Array.isArray(included_tags) ? included_tags : (included_tags ? String(included_tags).split(',').map(t => t.trim()).filter(Boolean) : []),
       exclude_tags: Array.isArray(exclude_tags) ? exclude_tags : (exclude_tags ? String(exclude_tags).split(',').map(t => t.trim()).filter(Boolean) : []),
@@ -374,7 +400,7 @@ app.post('/api/function-engine/deploy', requireAdmin, async (req, res) => {
 // Uses GraphQL field aliases to fetch all 4 metafield keys in one pass.
 // Reduces Shopify API calls from ~20 (4 endpoints × 5 pages) to ~5 (1 endpoint × 5 pages).
 // =============================================================================
-app.get('/api/discounts/list-all', requireViewer, async (req, res) => {
+app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req, res) => {
   try {
     const startTime = Date.now();
     const { shop, accessToken } = await getOrExchangeToken(req);
@@ -500,23 +526,22 @@ app.get('/api/discounts/list-all', requireViewer, async (req, res) => {
 });
 
 // Diagnostic endpoint: raw discount query to debug why discounts don't appear
-app.get('/api/discounts/debug-query', requireViewer, async (req, res) => {
+app.get('/api/discounts/debug-query', requireViewer, heavyRateLimit(10), async (req, res) => {
   try {
     const { shop, accessToken } = await getOrExchangeToken(req);
     if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });
 
     const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
     const searchTerm = req.query.q || '';
+    const cursor = req.query.cursor || null;
 
-    // Query discountNodes with ALL type fragments so we can see __typename
-    const afterClause = req.query.cursor ? `, after: "${String(req.query.cursor).replace(/"/g, '')}"` : '';
-    const queryFilter = searchTerm ? `, query: "${searchTerm.replace(/"/g, '\\"')}"` : '';
+    // Use GraphQL variables to prevent injection
     const response = await fetch(graphqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
       body: JSON.stringify({
-        query: `query {
-          discountNodes(first: 20${queryFilter}${afterClause}) {
+        query: `query debugQuery($first: Int!, $query: String, $after: String) {
+          discountNodes(first: $first, query: $query, after: $after) {
             nodes {
               id
               discount {
@@ -568,7 +593,12 @@ app.get('/api/discounts/debug-query', requireViewer, async (req, res) => {
             }
             pageInfo { hasNextPage endCursor }
           }
-        }`
+        }`,
+        variables: {
+          first: 20,
+          query: searchTerm || null,
+          after: cursor || null,
+        },
       }),
     });
 
@@ -712,7 +742,7 @@ app.get('/api/products/preview', requireBuilder, async (req, res) => {
 });
 
 // Product search: type-ahead search by title for discount simulator
-app.get('/api/products/search', requireBuilder, async (req, res) => {
+app.get('/api/products/search', requireBuilder, heavyRateLimit(20), async (req, res) => {
   try {
     const { shop, accessToken } = await getOrExchangeToken(req);
     if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });
@@ -1923,7 +1953,7 @@ app.get('/api/errors/log', requireAdmin, (req, res) => {
   res.json({ success: true, errors: errorLog.slice(0, limit), total: errorLog.length });
 });
 
-app.post('/api/errors/report', requireViewer, (req, res) => {
+app.post('/api/errors/report', requireViewer, heavyRateLimit(10), (req, res) => {
   const { message, area, stack } = req.body || {};
   if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message required' });
   const entry = {
@@ -1945,8 +1975,8 @@ app.delete('/api/errors/clear', requireAdmin, (req, res) => {
 
 function applyStorefrontCors(req, res) {
   const origin = req.headers.origin || '';
-  // Only allow the actual storefront origin, not wildcard
-  const storeDomain = (req.query.shop || DEFAULT_SHOP).replace(/[^a-zA-Z0-9.\-]/g, '');
+  // Use DEFAULT_SHOP only — do NOT trust req.query.shop for CORS origin
+  const storeDomain = DEFAULT_SHOP.replace(/[^a-zA-Z0-9.\-]/g, '');
   const allowed = [`https://${storeDomain}`, `https://${storeDomain.replace('.myshopify.com', '.com')}`];
   if (allowed.includes(origin) || process.env.NODE_ENV !== 'production') {
     res.set('Access-Control-Allow-Origin', origin || allowed[0]);
@@ -3223,6 +3253,34 @@ app.get('/', async (req, res) => {
           color: #4F46E5;
         }
 
+        /* Live on Shopify indicator */
+        .live-indicator {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 10px;
+          font-weight: 700;
+          color: #059669;
+          background: #ECFDF5;
+          border: 1px solid #A7F3D0;
+          padding: 2px 8px;
+          border-radius: 10px;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          margin-left: 6px;
+        }
+        .live-dot {
+          width: 7px;
+          height: 7px;
+          background: #10B981;
+          border-radius: 50%;
+          animation: livePulse 1.5s ease-in-out infinite;
+        }
+        @keyframes livePulse {
+          0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16,185,129,0.5); }
+          50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(16,185,129,0); }
+        }
+
         .countdown-row {
           background: linear-gradient(90deg, rgba(99,102,241,0.06), rgba(99,102,241,0.02));
           border-radius: 6px;
@@ -4250,9 +4308,6 @@ app.get('/', async (req, res) => {
             </div>
           </div>
         </div>
-            </div>
-          </div>
-        </div>
         ` : `
         <div class="section" style="opacity: 0.5;">
           <div class="section-title">Create New Campaign <span class="role-badge role-builder" style="font-size: 10px;">Builder+ Required</span></div>
@@ -4300,10 +4355,10 @@ app.get('/', async (req, res) => {
               discount powered by the compiled Rust/WASM function &mdash; no code needed.
             </p>
             <p style="color:var(--text-muted);margin-bottom:6px;font-size:12px;">
-              Available product tags: <strong>${AVAILABLE_FUNCTION_TAGS.join(', ')}</strong>
+              Available product tags: <strong id="fe_tags_display">Loading from store...</strong>
             </p>
             <p style="color:var(--text-muted);margin-bottom:20px;font-size:12px;">
-              Available vendors: <strong>${AVAILABLE_FUNCTION_VENDORS.join(', ')}</strong>
+              Available vendors: <strong id="fe_vendors_display">${AVAILABLE_FUNCTION_VENDORS.join(', ')}</strong>
             </p>
 
             <!-- Create Form -->
@@ -4410,6 +4465,22 @@ app.get('/', async (req, res) => {
                   <label class="checkbox-label">
                     <input type="checkbox" id="fe_combine_shipping" /> Shipping Discounts
                   </label>
+                </div>
+              </div>
+
+              <!-- Also Deploy Shipping Discount -->
+              <div style="margin-top:18px;padding:14px;background:linear-gradient(135deg,#f0fdfa,#ecfdf5);border-radius:var(--radius-sm);border:1px solid #A7F3D0;">
+                <label class="checkbox-label" style="font-weight:600;font-size:13px;">
+                  <input type="checkbox" id="fe_also_shipping" /> 🚚 Also deploy a free-shipping discount with this campaign
+                </label>
+                <p style="color:var(--text-muted);font-size:12px;margin:6px 0 0 24px;">
+                  Creates a paired shipping discount with the same schedule. Both discounts will activate and expire together.
+                </p>
+                <div id="fe_shipping_opts" style="display:none;margin-top:10px;padding-left:24px;">
+                  <div class="form-group" style="max-width:200px;">
+                    <label class="form-label">Minimum Cart for Free Shipping ($)</label>
+                    <input type="number" id="fe_ship_threshold" min="10" max="100" value="50" class="form-input" />
+                  </div>
                 </div>
               </div>
 
@@ -5253,12 +5324,16 @@ app.get('/', async (req, res) => {
 
             const cardClass = expired ? 'discount-card expired-card' : discount.paused ? 'discount-card paused-card' : isScheduled(discount) ? 'discount-card scheduled-card' : 'discount-card';
             
+            // Live on Shopify indicator for active deployed discounts
+            const isLiveOnShopify = isDeployedFunction && !expired && !discount.paused && discount._functionStatus === 'ACTIVE';
+            const liveHtml = isLiveOnShopify ? '<span class="live-indicator"><span class="live-dot"></span>LIVE</span>' : '';
+            
             return '<div class="' + cardClass + '" data-id="' + discount.id + '" data-type="' + discount.type + '" data-source="' + (discount._source || 'campaign') + '">' +
               '<div class="card-accent" style="' + accentStyle + '"></div>' +
               '<div class="card-body">' +
               '<div class="discount-header">' +
               '<div>' +
-              '<div class="discount-title">' + formatTitle(escHtml(discount.name)) + '</div>' +
+              '<div class="discount-title">' + formatTitle(escHtml(discount.name)) + liveHtml + '</div>' +
               '<div class="discount-meta">' + sourceBadge + '<span class="discount-badge ' + typeBadgeClass + '">' + typeIcon + ' ' + typeLabel + '</span></div>' +
               '</div>' +
               '<span class="discount-badge ' + badgeClass + '">' + (statusIcon ? statusIcon + ' ' : '') + badgeText + '</span>' +
@@ -6204,6 +6279,15 @@ app.get('/', async (req, res) => {
           const deployBtn = document.getElementById('fe_deploy_btn');
           if (!deployBtn) return;
 
+          // Toggle shipping options visibility
+          const shipToggle = document.getElementById('fe_also_shipping');
+          const shipOpts = document.getElementById('fe_shipping_opts');
+          if (shipToggle && shipOpts) {
+            shipToggle.addEventListener('change', () => {
+              shipOpts.style.display = shipToggle.checked ? 'block' : 'none';
+            });
+          }
+
           deployBtn.addEventListener('click', async () => {
             const status = document.getElementById('fe_deploy_status');
             const title = document.getElementById('fe_title')?.value?.trim();
@@ -6294,6 +6378,36 @@ app.get('/', async (req, res) => {
                 return;
               }
               if (status) { status.textContent = 'Deployed successfully!'; status.style.color = '#4CAF50'; }
+              // Also deploy shipping discount if toggle is checked
+              const alsoShipping = document.getElementById('fe_also_shipping');
+              if (alsoShipping && alsoShipping.checked) {
+                try {
+                  const shipThreshold = Number(document.getElementById('fe_ship_threshold')?.value) || 50;
+                  const shipBody = {
+                    title: title + ' - Free Shipping',
+                    threshold: shipThreshold,
+                    message: 'Free shipping on orders $' + shipThreshold + '+',
+                    starts_at: body.starts_at,
+                    ends_at: body.ends_at,
+                    combines_with_order: body.combines_with_order,
+                    combines_with_product: body.combines_with_product,
+                    combines_with_shipping: true,
+                  };
+                  const shipResp = await fetch(withShopParam('/api/shipping-function/deploy'), {
+                    method: 'POST', headers, body: JSON.stringify(shipBody)
+                  });
+                  const shipData = await shipResp.json();
+                  if (shipResp.ok) {
+                    showToast('Paired shipping discount also deployed!', 'success');
+                  } else {
+                    console.warn('[FE] Shipping pair deploy failed:', shipData.error);
+                    showToast('Product discount deployed, but shipping pair failed: ' + (shipData.error || 'Unknown error'), 'warning');
+                  }
+                } catch (shipErr) {
+                  console.warn('[FE] Shipping pair deploy error:', shipErr.message);
+                  showToast('Product discount deployed, but shipping pair failed: ' + shipErr.message, 'warning');
+                }
+              }
               // Show scheduled confirmation if start date is in the future
               if (body.starts_at && new Date(body.starts_at) > new Date()) {
                 const _fmtStart = new Date(body.starts_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
@@ -7196,10 +7310,19 @@ app.get('/', async (req, res) => {
                 initFlairInput('fe_exclude_tags', realTags, 'exclude');
                 initFlairInput('bx_qualifying_tags', realTags, 'bxgy');
                 initFlairInput('td_included_tags', realTags, 'include');
+                // Update the display text with real tag count
+                const tagsDisplay = document.getElementById('fe_tags_display');
+                if (tagsDisplay) tagsDisplay.textContent = realTags.length + ' tags loaded from store (type to search)';
                 console.log('[Tags] Loaded ' + realTags.length + ' product tags from Shopify');
+              } else {
+                // Show fallback tags in display
+                const tagsDisplay = document.getElementById('fe_tags_display');
+                if (tagsDisplay) tagsDisplay.textContent = _staticTags.join(', ');
               }
             } catch (err) {
               console.warn('[Tags] Could not fetch real product tags, using defaults:', err.message);
+              const tagsDisplay = document.getElementById('fe_tags_display');
+              if (tagsDisplay) tagsDisplay.textContent = _staticTags.join(', ');
             }
           })();
 

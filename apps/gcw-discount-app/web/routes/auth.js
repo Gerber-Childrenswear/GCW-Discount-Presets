@@ -58,6 +58,7 @@ router.get('/api/auth/callback', async (req, res) => {
       return res.status(403).send('Session state mismatch (CSRF protection). Please retry the install.');
     }
     console.log(`[OAuth] Nonce verified for ${shop}`);
+    // Delete nonce BEFORE token exchange to prevent replay attacks during the exchange window
     delete shopSessions[`nonce_${shop}`];
     persistSessions();
 

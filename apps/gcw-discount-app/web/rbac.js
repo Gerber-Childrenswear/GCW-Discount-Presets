@@ -87,8 +87,8 @@ export function verifySessionToken(token) {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
 
     const now = Math.floor(Date.now() / 1000);
-    // Shopify session tokens last ~60s. Allow 5 min grace for clock skew + caching.
-    const EXP_GRACE = 300;
+    // Shopify session tokens last ~60s. Allow 2 min grace for clock skew + embedded app reload.
+    const EXP_GRACE = 120;
     if (payload.exp && payload.exp + EXP_GRACE < now) {
       if (_jwtCallCount <= 5) {
         console.warn(`[JWT] Token expired — exp=${payload.exp}, now=${now}, diff=${now - payload.exp}s, grace=${EXP_GRACE}s`);

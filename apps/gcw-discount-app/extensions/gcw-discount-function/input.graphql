@@ -28,8 +28,7 @@ query Input {
               "boys", "girls", "unisex", "organic", "essentials",
               "sleepwear", "onesies", "bodysuits", "sets", "accessories",
               "final-sale", "no-return", "preorder", "backorder", "new-arrival",
-              "25-off", "30-off", "40-off", "50-off", "free-gift",
-              "no discount", "no discount:strict"
+              "25-off", "30-off", "40-off", "50-off", "free-gift"
             ]) {
               hasTag
               tag

@@ -65,7 +65,7 @@ export async function exchangeToken(shop, idToken) {
       client_secret: process.env.SHOPIFY_API_SECRET,
       grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
       subject_token: idToken,
-      subject_token_type: 'urn:ietf:params:oauth:token-type:id-token',
+      subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
       requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
     });
 
@@ -131,7 +131,7 @@ export async function resolveUserEmail(shop, idToken) {
         client_secret: process.env.SHOPIFY_API_SECRET,
         grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
         subject_token: idToken,
-        subject_token_type: 'urn:ietf:params:oauth:token-type:id-token',
+        subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
         requested_token_type: 'urn:shopify:params:oauth:token-type:online-access-token',
       });
       const resp = await fetch(`https://${shop}/admin/oauth/access_token`, {

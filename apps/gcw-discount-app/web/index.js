@@ -4425,6 +4425,8 @@ app.get('/', async (req, res) => {
       (function() {
         var gate = document.getElementById('gcwLoginGate');
         var PW_KEY = 'gcw_app_password';
+        var AUTH_PASSWORD = '';
+        try { AUTH_PASSWORD = sessionStorage.getItem(PW_KEY) || ''; } catch {}
 
         // In embedded contexts, third-party cookies can be blocked.
         // Keep a session-scoped password fallback and attach it as a header.
@@ -4432,8 +4434,10 @@ app.get('/', async (req, res) => {
         window.fetch = function(input, init) {
           init = init || {};
           var headers = new Headers(init.headers || {});
-          var savedPw = null;
-          try { savedPw = sessionStorage.getItem(PW_KEY); } catch {}
+          var savedPw = AUTH_PASSWORD;
+          if (!savedPw) {
+            try { savedPw = sessionStorage.getItem(PW_KEY) || ''; } catch { savedPw = ''; }
+          }
           if (savedPw && !headers.has('x-gcw-password')) {
             headers.set('x-gcw-password', savedPw);
           }
@@ -4481,6 +4485,7 @@ app.get('/', async (req, res) => {
           }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
             .then(function(result) {
               if (result.ok && result.data.success) {
+                AUTH_PASSWORD = pw;
                 try { sessionStorage.setItem(PW_KEY, pw); } catch {}
                 setAppVisibility(true);
               } else {

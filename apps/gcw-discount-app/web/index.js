@@ -22,7 +22,7 @@ import {
 import {
   AVAILABLE_FUNCTION_TAGS, AVAILABLE_BXGY_TAGS, validateTags, AVAILABLE_FUNCTION_VENDORS,
 } from './tag-validation.js';
-import { discountsStore, registerDiscount, getRegisteredGids } from './discount-store.js';
+import { discountsStore, registerDiscount, unregisterDiscount, getRegisteredGids } from './discount-store.js';
 
 // Route modules
 import authRouter from './routes/auth.js';
@@ -386,6 +386,7 @@ app.post('/api/function-engine/deploy', requireAdmin, heavyRateLimit(5), async (
     }
 
     const disc = createData?.automaticAppDiscount;
+    if (disc?.discountId) registerDiscount(disc.discountId, shop, 'function-engine');
     console.log(`[FunctionEngine] Created function discount: ${disc?.title} (${disc?.discountId})`);
 
     res.json({ success: true, discount: disc, config: functionConfig, warnings: tagWarnings });
@@ -479,6 +480,29 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
       for (const key of Object.keys(results[1].data)) {
         const n = results[1].data[key];
         if (n && !seen.has(n.id)) { seen.add(n.id); allNodes.push(n); }
+      }
+    }
+
+    // Fallback discovery: if targeted search + registry found nothing,
+    // do a bounded scan and keep only discounts owned by this app.
+    if (allNodes.length === 0) {
+      const appKey = process.env.SHOPIFY_API_KEY;
+      let cursor = null;
+      for (let page = 0; page < 10; page++) {
+        const afterClause = cursor ? `, after: "${cursor}"` : '';
+        const scan = await gql(`query { discountNodes(first: 50${afterClause}) { nodes { ${discountFragment} } pageInfo { hasNextPage endCursor } } }`);
+        const scanNodes = scan?.data?.discountNodes?.nodes || [];
+        for (const n of scanNodes) {
+          const appOwned = n?.discount?.appDiscountType?.appKey === appKey;
+          const hasKnownConfig = !!(n?.discount_config?.value || n?.shipping_config?.value || n?.tiered_config?.value || n?.bxgy_config?.value);
+          if (appOwned && hasKnownConfig && !seen.has(n.id)) {
+            seen.add(n.id);
+            allNodes.push(n);
+          }
+        }
+        const pi = scan?.data?.discountNodes?.pageInfo;
+        if (!pi?.hasNextPage) break;
+        cursor = pi.endCursor;
       }
     }
 
@@ -1076,6 +1100,7 @@ app.delete('/api/function-engine/:discountId', requireAdmin, async (req, res) =>
     const data = result.data?.discountAutomaticDelete;
     if (data?.userErrors?.length) return res.status(400).json({ error: data.userErrors[0].message });
 
+    unregisterDiscount(discountId);
     console.log(`[FunctionEngine] Deleted discount: ${discountId}`);
     res.json({ success: true, deletedId: data?.deletedAutomaticDiscountId });
   } catch (error) {
@@ -1418,6 +1443,7 @@ app.post('/api/shipping-function/deploy', requireAdmin, async (req, res) => {
     }
 
     const disc = createData?.automaticAppDiscount;
+    if (disc?.discountId) registerDiscount(disc.discountId, shop, 'shipping-function');
     console.log(`[ShippingFunction] Created: ${disc?.title} (${disc?.discountId})`);
     res.json({ success: true, discount: disc, config: shippingConfig });
   } catch (error) {
@@ -1553,6 +1579,7 @@ app.delete('/api/shipping-function/:discountId', requireAdmin, async (req, res) 
     const data = result.data?.discountAutomaticDelete;
     if (data?.userErrors?.length) return res.status(400).json({ error: data.userErrors[0].message });
 
+    unregisterDiscount(discountId);
     console.log(`[ShippingFunction] Deleted discount: ${discountId}`);
     res.json({ success: true, deletedId: data?.deletedAutomaticDiscountId });
   } catch (error) {
@@ -1675,6 +1702,7 @@ app.post('/api/tiered-discount/deploy', requireAdmin, async (req, res) => {
     if (createData?.userErrors?.length) return res.status(400).json({ error: 'Shopify error', details: createData.userErrors });
 
     const disc = createData?.automaticAppDiscount;
+    if (disc?.discountId) registerDiscount(disc.discountId, shop, 'tiered-discount');
     console.log(`[TieredDiscount] Created: ${disc?.title} (${disc?.discountId})`);
     res.json({ success: true, discount: disc, config: tieredConfig, warnings: tagWarnings });
   } catch (error) {
@@ -1729,6 +1757,7 @@ app.delete('/api/tiered-discount/:discountId', requireAdmin, async (req, res) =>
     let result; try { result = JSON.parse(text); } catch { return res.status(502).json({ error: 'Non-JSON from Shopify' }); }
     const data = result.data?.discountAutomaticDelete;
     if (data?.userErrors?.length) return res.status(400).json({ error: data.userErrors[0].message });
+    unregisterDiscount(discountId);
     console.log(`[TieredDiscount] Deleted: ${discountId}`);
     res.json({ success: true, deletedId: data?.deletedAutomaticDiscountId });
   } catch (error) {
@@ -1826,6 +1855,7 @@ app.post('/api/bxgy-discount/deploy', requireAdmin, async (req, res) => {
     if (createData?.userErrors?.length) return res.status(400).json({ error: 'Shopify error', details: createData.userErrors });
 
     const disc = createData?.automaticAppDiscount;
+    if (disc?.discountId) registerDiscount(disc.discountId, shop, 'bxgy-discount');
     console.log(`[BXGY] Created: ${disc?.title} (${disc?.discountId})`);
     res.json({ success: true, discount: disc, config: bxgyConfig, warnings: tagWarnings });
   } catch (error) {
@@ -1879,6 +1909,7 @@ app.delete('/api/bxgy-discount/:discountId', requireAdmin, async (req, res) => {
     let result; try { result = JSON.parse(text); } catch { return res.status(502).json({ error: 'Non-JSON from Shopify' }); }
     const data = result.data?.discountAutomaticDelete;
     if (data?.userErrors?.length) return res.status(400).json({ error: data.userErrors[0].message });
+    unregisterDiscount(discountId);
     console.log(`[BXGY] Deleted: ${discountId}`);
     res.json({ success: true, deletedId: data?.deletedAutomaticDiscountId });
   } catch (error) {

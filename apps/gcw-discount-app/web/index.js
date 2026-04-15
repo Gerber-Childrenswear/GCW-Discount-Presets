@@ -1088,9 +1088,9 @@ app.delete('/api/function-engine/:discountId', requireAdmin, async (req, res) =>
 const _productTagsCache = {}; // { [shop]: { tags: [], ts: 0 } }
 const PRODUCT_TAGS_TTL = 300000; // 5 minutes
 
-async function fetchShopifyProductTags(shop, accessToken) {
+async function fetchShopifyProductTags(shop, accessToken, forceRefresh = false) {
   const cached = _productTagsCache[shop];
-  if (cached && Date.now() - cached.ts < PRODUCT_TAGS_TTL && cached.tags.length > 0) {
+  if (!forceRefresh && cached && Date.now() - cached.ts < PRODUCT_TAGS_TTL && cached.tags.length > 0) {
     return cached.tags;
   }
   const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
@@ -1117,7 +1117,8 @@ async function fetchShopifyProductTags(shop, accessToken) {
 // Product tags endpoint — returns real Shopify tags with fallback to static list
 app.get('/api/product-tags', requireViewer, resolveShopifyAccess, async (req, res) => {
   try {
-    const tags = await fetchShopifyProductTags(req.shopifyShop, req.shopifyAccessToken);
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const tags = await fetchShopifyProductTags(req.shopifyShop, req.shopifyAccessToken, forceRefresh);
     res.json({ success: true, tags });
   } catch (err) {
     res.json({ success: true, tags: AVAILABLE_FUNCTION_TAGS });
@@ -1127,7 +1128,8 @@ app.get('/api/product-tags', requireViewer, resolveShopifyAccess, async (req, re
 // Available tags endpoint (so the UI can stay in sync)
 app.get('/api/function-engine/available-tags', requireViewer, resolveShopifyAccess, async (req, res) => {
   try {
-    const tags = await fetchShopifyProductTags(req.shopifyShop, req.shopifyAccessToken);
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const tags = await fetchShopifyProductTags(req.shopifyShop, req.shopifyAccessToken, forceRefresh);
     res.json({ success: true, tags });
   } catch (err) {
     res.json({ success: true, tags: AVAILABLE_FUNCTION_TAGS });
@@ -7392,7 +7394,7 @@ app.get('/', async (req, res) => {
           (async function() {
             try {
               const headers = await getApiHeaders();
-              const resp = await fetch(withShopParam('/api/product-tags'), { headers });
+              const resp = await fetch(withShopParam('/api/product-tags') + '&refresh=1', { headers, cache: 'no-store' });
               const data = await resp.json();
               if (data.success && data.tags && data.tags.length > 0) {
                 const realTags = data.tags;

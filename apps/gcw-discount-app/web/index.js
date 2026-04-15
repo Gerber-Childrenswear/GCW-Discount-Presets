@@ -4199,13 +4199,8 @@ app.get('/', async (req, res) => {
         };
 
         function setAppVisibility(isAuthenticated) {
-          var body = document.body;
-          for (var i = 0; i < body.children.length; i++) {
-            var el = body.children[i];
-            if (el.id === 'gcwLoginGate' || el.tagName === 'SCRIPT') continue;
-            el.style.display = isAuthenticated ? '' : 'none';
-          }
           gate.style.display = isAuthenticated ? 'none' : 'flex';
+          gate.style.pointerEvents = isAuthenticated ? 'none' : 'auto';
         }
 
         // Check auth status on load

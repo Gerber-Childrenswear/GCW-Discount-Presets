@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import crypto from 'crypto';
 import { appUrl } from '../config.js';
 import { shopSessions, persistSessions, setRuntimeAccessToken } from '../session-store.js';
 import { verifyHmac } from '../security.js';
 import { reportError } from '../error-logger.js';
+import { verifyPassword, setAuthCookie, isAuthenticated } from '../rbac.js';
 
 const router = Router();
 
@@ -101,6 +102,32 @@ router.get('/api/auth/callback', async (req, res) => {
     reportError(error, { area: 'oauth_callback' });
     res.status(500).send('OAuth callback error: ' + error.message);
   }
+});
+
+// Password login endpoint
+router.post('/api/auth/password', express.json(), (req, res) => {
+  const { password } = req.body || {};
+  if (!password) {
+    return res.status(400).json({ success: false, error: 'Password is required' });
+  }
+  if (verifyPassword(password)) {
+    setAuthCookie(res);
+    console.log('[Auth] Password login successful');
+    return res.json({ success: true });
+  }
+  console.warn('[Auth] Password login failed (wrong password)');
+  return res.status(401).json({ success: false, error: 'Incorrect password' });
+});
+
+// Check auth status
+router.get('/api/auth/status', (req, res) => {
+  res.json({ authenticated: isAuthenticated(req) });
+});
+
+// Logout
+router.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('gcw_auth', { httpOnly: true, secure: true, sameSite: 'none', path: '/' });
+  res.json({ success: true });
 });
 
 export default router;

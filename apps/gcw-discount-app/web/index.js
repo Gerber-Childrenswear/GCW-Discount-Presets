@@ -4160,6 +4160,77 @@ app.get('/', async (req, res) => {
       </style>
     </head>
     <body>
+      <!-- Password Login Gate -->
+      <div id="gcwLoginGate" style="display:none;position:fixed;inset:0;z-index:99999;background:linear-gradient(135deg,#0F2340 0%,#1B365D 100%);align-items:center;justify-content:center;">
+        <div style="background:#fff;border-radius:16px;padding:40px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;">
+          <img src="/gcw-logo.svg" alt="GCW" style="height:40px;margin-bottom:16px;" onerror="this.style.display='none'">
+          <h2 style="margin:0 0 8px;font-size:20px;color:#1A1D21;font-family:Inter,sans-serif;">Discount Manager</h2>
+          <p style="margin:0 0 24px;font-size:13px;color:#5E6470;font-family:Inter,sans-serif;">Enter your password to continue</p>
+          <form id="gcwLoginForm" autocomplete="off" style="display:flex;flex-direction:column;gap:12px;">
+            <input id="gcwPasswordInput" type="password" placeholder="Password" autocomplete="current-password" style="padding:10px 14px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px;font-family:Inter,sans-serif;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='#1B365D'" onblur="this.style.borderColor='#D1D5DB'">
+            <button type="submit" style="padding:10px 14px;background:#1B365D;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;font-family:Inter,sans-serif;cursor:pointer;transition:background 0.2s;" onmouseover="this.style.background='#2C4A7C'" onmouseout="this.style.background='#1B365D'">Sign In</button>
+            <p id="gcwLoginError" style="display:none;color:#DC2626;font-size:13px;margin:0;font-family:Inter,sans-serif;"></p>
+          </form>
+        </div>
+      </div>
+      <script>
+      (function() {
+        var gate = document.getElementById('gcwLoginGate');
+        function setAppVisibility(isAuthenticated) {
+          var body = document.body;
+          for (var i = 0; i < body.children.length; i++) {
+            var el = body.children[i];
+            if (el.id === 'gcwLoginGate' || el.tagName === 'SCRIPT') continue;
+            el.style.display = isAuthenticated ? '' : 'none';
+          }
+          gate.style.display = isAuthenticated ? 'none' : 'flex';
+        }
+
+        // Check auth status on load
+        fetch('/api/auth/status', { credentials: 'same-origin' })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d.authenticated) {
+              setAppVisibility(true);
+            } else {
+              setAppVisibility(false);
+              document.getElementById('gcwPasswordInput').focus();
+            }
+          })
+          .catch(function() {
+            setAppVisibility(false);
+            document.getElementById('gcwPasswordInput').focus();
+          });
+
+        document.getElementById('gcwLoginForm').addEventListener('submit', function(e) {
+          e.preventDefault();
+          var pw = document.getElementById('gcwPasswordInput').value;
+          var errEl = document.getElementById('gcwLoginError');
+          errEl.style.display = 'none';
+          fetch('/api/auth/password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ password: pw })
+          }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+            .then(function(result) {
+              if (result.ok && result.data.success) {
+                setAppVisibility(true);
+              } else {
+                errEl.textContent = result.data.error || 'Incorrect password';
+                errEl.style.display = 'block';
+                document.getElementById('gcwPasswordInput').value = '';
+                document.getElementById('gcwPasswordInput').focus();
+              }
+            })
+            .catch(function() {
+              errEl.textContent = 'Connection error. Please try again.';
+              errEl.style.display = 'block';
+            });
+        });
+      })();
+      </script>
+
       <div class="brand-bar"></div>
       <div class="header">
         <div class="header-content">

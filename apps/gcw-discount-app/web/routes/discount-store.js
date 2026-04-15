@@ -9,6 +9,22 @@ import { autoActivateAsFunction, autoActivateAsBasic } from '../shopify-utils.js
 
 const router = Router();
 
+// Fetch with timeout to prevent hanging requests
+const FETCH_TIMEOUT = 15000;
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+  try {
+    const resp = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return resp;
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error(`Shopify API timeout after ${FETCH_TIMEOUT / 1000}s`);
+    throw err;
+  }
+}
+
 router.post('/api/discount/save', requireBuilder, (req, res) => {
   try {
     const { id, settings } = req.body;
@@ -79,7 +95,11 @@ router.post('/api/discount/:id/activate', requireAdmin, async (req, res) => {
       variables = {
         automaticBasicDiscount: {
           title, startsAt, endsAt,
-          combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: false },
+          combinesWith: {
+            orderDiscounts: !!discount.combines_with_order,
+            productDiscounts: !!discount.combines_with_product,
+            shippingDiscounts: !!discount.combines_with_shipping
+          },
           customerGets: {
             value: { percentage: (percentageValue / 100) },
             items: { all: true }
@@ -102,7 +122,7 @@ router.post('/api/discount/:id/activate', requireAdmin, async (req, res) => {
 
     const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
     
-    const graphqlResponse = await fetch(graphqlUrl, {
+    const graphqlResponse = await fetchWithTimeout(graphqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
       body: JSON.stringify({ query: mutation, variables })
@@ -156,7 +176,7 @@ router.post('/api/discount/:id/activate-function', requireAdmin, async (req, res
     const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
 
     const callShopify = async (query, variables = {}) => {
-      const response = await fetch(graphqlUrl, {
+      const response = await fetchWithTimeout(graphqlUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
         body: JSON.stringify({ query, variables })
@@ -265,7 +285,11 @@ router.post('/api/discount/:id/activate-function', requireAdmin, async (req, res
         title,
         functionId: discountFunction.id,
         startsAt, endsAt, discountClasses,
-        combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: false },
+        combinesWith: {
+          orderDiscounts: !!discount.combines_with_order,
+          productDiscounts: !!discount.combines_with_product,
+          shippingDiscounts: !!discount.combines_with_shipping
+        },
         metafields: [{ namespace: 'gcw', key: metafieldKey, type: 'json', value: JSON.stringify(functionConfig) }],
       }
     });
@@ -340,7 +364,7 @@ router.delete('/api/discount/:id', requireAdmin, async (req, res) => {
         const { shop, accessToken } = await getOrExchangeToken(req);
         if (shop && accessToken) {
           const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
-          const delResp = await fetch(graphqlUrl, {
+          const delResp = await fetchWithTimeout(graphqlUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
             body: JSON.stringify({
@@ -407,70 +431,6 @@ router.get('/api/discounts', requireViewer, (req, res) => {
     res.json({ success: true, data });
   } catch (error) {
     reportError(error, { area: 'discounts_list' });
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Cache for product tags (5 minutes)
-const tagCache = { tags: [], expiresAt: 0 };
-
-router.get('/api/product-tags', requireViewer, async (req, res) => {
-  try {
-    const { shop, accessToken } = await getOrExchangeToken(req);
-    
-    if (!shop) {
-      return res.status(401).json({ error: 'Missing shop parameter' });
-    }
-    if (!accessToken) {
-      return res.status(401).json({ error: 'Missing Shopify access token' });
-    }
-
-    // Check cache first
-    const now = Date.now();
-    if (tagCache.tags.length > 0 && now < tagCache.expiresAt) {
-      return res.json({ success: true, data: tagCache.tags, cached: true });
-    }
-
-    const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
-    
-    // Fetch product tags using Admin GraphQL API
-    const query = `
-      query {
-        productTags(first: 100) {
-          edges {
-            node
-          }
-        }
-      }
-    `;
-
-    const response = await fetch(graphqlUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': accessToken,
-      },
-      body: JSON.stringify({ query }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok || result.errors) {
-      const errorMsg = result.errors?.[0]?.message || 'Failed to fetch product tags';
-      return res.status(400).json({ error: errorMsg });
-    }
-
-    // Extract unique tags from productTags edges
-    const tags = result.data?.productTags?.edges?.map(edge => edge.node) || [];
-    const uniqueTags = Array.from(new Set(tags)).sort();
-
-    // Update cache (5 minutes = 300000 milliseconds)
-    tagCache.tags = uniqueTags;
-    tagCache.expiresAt = now + 300000;
-
-    res.json({ success: true, data: uniqueTags, cached: false });
-  } catch (error) {
-    reportError(error, { area: 'product_tags_fetch' });
     res.status(500).json({ error: error.message });
   }
 });

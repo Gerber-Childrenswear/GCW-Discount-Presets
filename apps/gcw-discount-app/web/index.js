@@ -1094,15 +1094,37 @@ async function fetchShopifyProductTags(shop, accessToken, forceRefresh = false) 
     return cached.tags;
   }
   const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
-  const query = `{ shop { productTags(first: 250) { edges { node } } } }`;
   try {
-    const resp = await fetch(graphqlUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
-      body: JSON.stringify({ query }),
-    });
-    const json = await resp.json();
-    const tags = (json.data?.shop?.productTags?.edges || []).map(e => e.node).filter(Boolean).sort();
+    // Shopify can have more than 250 tags; page through all results so new tags are not dropped.
+    const allTags = new Set();
+    let hasNextPage = true;
+    let cursor = null;
+    let pageCount = 0;
+
+    while (hasNextPage && pageCount < 20) {
+      pageCount += 1;
+      const afterPart = cursor ? `, after: \"${cursor}\"` : '';
+      const query = `query { productTags(first: 250${afterPart}) { edges { node } pageInfo { hasNextPage endCursor } } }`;
+
+      const resp = await fetch(graphqlUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
+        body: JSON.stringify({ query }),
+      });
+      const json = await resp.json();
+
+      const edges = json.data?.productTags?.edges || [];
+      for (const edge of edges) {
+        const tag = edge?.node;
+        if (tag) allTags.add(tag);
+      }
+
+      const pageInfo = json.data?.productTags?.pageInfo;
+      hasNextPage = !!pageInfo?.hasNextPage;
+      cursor = pageInfo?.endCursor || null;
+    }
+
+    const tags = Array.from(allTags).sort();
     if (tags.length > 0) {
       _productTagsCache[shop] = { tags, ts: Date.now() };
     }

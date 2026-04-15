@@ -4176,6 +4176,24 @@ app.get('/', async (req, res) => {
       <script>
       (function() {
         var gate = document.getElementById('gcwLoginGate');
+        var PW_KEY = 'gcw_app_password';
+
+        // In embedded contexts, third-party cookies can be blocked.
+        // Keep a session-scoped password fallback and attach it as a header.
+        var nativeFetch = window.fetch.bind(window);
+        window.fetch = function(input, init) {
+          init = init || {};
+          var headers = new Headers(init.headers || {});
+          var savedPw = null;
+          try { savedPw = sessionStorage.getItem(PW_KEY); } catch {}
+          if (savedPw && !headers.has('x-gcw-password')) {
+            headers.set('x-gcw-password', savedPw);
+          }
+          init.headers = headers;
+          if (!init.credentials) init.credentials = 'same-origin';
+          return nativeFetch(input, init);
+        };
+
         function setAppVisibility(isAuthenticated) {
           var body = document.body;
           for (var i = 0; i < body.children.length; i++) {
@@ -4215,6 +4233,7 @@ app.get('/', async (req, res) => {
           }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
             .then(function(result) {
               if (result.ok && result.data.success) {
+                try { sessionStorage.setItem(PW_KEY, pw); } catch {}
                 setAppVisibility(true);
               } else {
                 errEl.textContent = result.data.error || 'Incorrect password';

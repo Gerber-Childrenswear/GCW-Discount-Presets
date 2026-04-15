@@ -5,6 +5,22 @@ import { makeGqlClient } from './graphql-client.js';
 import { reportError } from './error-logger.js';
 import { discountsStore } from './discount-store.js';
 
+// Fetch with timeout — prevents hanging requests to Shopify
+const DEFAULT_FETCH_TIMEOUT = 15000; // 15 seconds
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return resp;
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error(`Request to ${new URL(url).hostname} timed out after ${timeoutMs / 1000}s`);
+    throw err;
+  }
+}
+
 // Validate Shopify shop domain (*.myshopify.com format)
 export function isValidShopDomain(shop) {
   return typeof shop === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shop);
@@ -69,7 +85,7 @@ export async function exchangeToken(shop, idToken) {
       requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
     });
 
-    const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    const response = await fetchWithTimeout(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -134,7 +150,7 @@ export async function resolveUserEmail(shop, idToken) {
         subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
         requested_token_type: 'urn:shopify:params:oauth:token-type:online-access-token',
       });
-      const resp = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      const resp = await fetchWithTimeout(`https://${shop}/admin/oauth/access_token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
         body: params.toString(),
@@ -157,7 +173,7 @@ export async function resolveUserEmail(shop, idToken) {
     if (accessToken && sub) {
       try {
         const gqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
-        const resp = await fetch(gqlUrl, {
+        const resp = await fetchWithTimeout(gqlUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
           body: JSON.stringify({ query: '{ staffMembers(first: 100) { edges { node { id email } } } }' }),
@@ -226,7 +242,7 @@ export async function autoActivateDiscounts(shop, accessToken) {
 
 export async function autoActivateAsFunction(shop, accessToken, graphqlUrl, discount) {
   try {
-    const fnResponse = await fetch(graphqlUrl, {
+    const fnResponse = await fetchWithTimeout(graphqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
       body: JSON.stringify({ query: '{ shopifyFunctions(first: 50) { nodes { id apiType title } } }' })
@@ -260,7 +276,7 @@ export async function autoActivateAsFunction(shop, accessToken, graphqlUrl, disc
       let autoCursor = null;
       for (let page = 0; page < 5; page++) {
         const afterClause = autoCursor ? `, after: "${autoCursor}"` : '';
-        const searchResp = await fetch(graphqlUrl, {
+        const searchResp = await fetchWithTimeout(graphqlUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
           body: JSON.stringify({ query: `query { discountNodes(first: 50${afterClause}) { nodes { id discount { ... on DiscountAutomaticApp { title } ... on DiscountAutomaticBasic { title } } } pageInfo { hasNextPage endCursor } } }` })
@@ -278,7 +294,7 @@ export async function autoActivateAsFunction(shop, accessToken, graphqlUrl, disc
       });
       for (const node of existing) {
         console.log(`[AutoActivate] Deleting duplicate "${title}" (${node.id})`);
-        await fetch(graphqlUrl, {
+        await fetchWithTimeout(graphqlUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
           body: JSON.stringify({ query: `mutation deleteDupe($id: ID!) { discountAutomaticDelete(id: $id) { deletedAutomaticDiscountId } }`, variables: { id: node.id } })
@@ -329,7 +345,11 @@ export async function autoActivateAsFunction(shop, accessToken, graphqlUrl, disc
         startsAt,
         endsAt,
         discountClasses,
-        combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: false },
+        combinesWith: {
+          orderDiscounts: !!discount.combines_with_order,
+          productDiscounts: !!discount.combines_with_product,
+          shippingDiscounts: !!discount.combines_with_shipping
+        },
         metafields: [{
           namespace: 'gcw',
           key: metafieldKey,
@@ -339,7 +359,7 @@ export async function autoActivateAsFunction(shop, accessToken, graphqlUrl, disc
       }
     };
 
-    const createResponse = await fetch(graphqlUrl, {
+    const createResponse = await fetchWithTimeout(graphqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
       body: JSON.stringify({ query: mutation, variables })
@@ -386,7 +406,11 @@ export async function autoActivateAsBasic(shop, accessToken, graphqlUrl, discoun
       title,
       startsAt,
       endsAt,
-      combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: false },
+      combinesWith: {
+        orderDiscounts: !!discount.combines_with_order,
+        productDiscounts: !!discount.combines_with_product,
+        shippingDiscounts: !!discount.combines_with_shipping
+      },
       customerGets: {
         value: { percentage: percentageValue / 100 },
         items: { all: true }
@@ -395,7 +419,7 @@ export async function autoActivateAsBasic(shop, accessToken, graphqlUrl, discoun
     }
   };
 
-  const response = await fetch(graphqlUrl, {
+  const response = await fetchWithTimeout(graphqlUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
     body: JSON.stringify({ query: mutation, variables })
@@ -439,7 +463,7 @@ export async function setDiscountMetafield(shop, accessToken, graphqlUrl, discou
       exclude_product_ids: [],
     };
 
-    await fetch(graphqlUrl, {
+    await fetchWithTimeout(graphqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
       body: JSON.stringify({

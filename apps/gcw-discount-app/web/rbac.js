@@ -64,6 +64,14 @@ export function isAuthenticated(req) {
       if (crypto.timingSafeEqual(Buffer.from(headerPw), Buffer.from(APP_PASSWORD))) return true;
     } catch { /* length mismatch */ }
   }
+  // 3. Accept valid Shopify session tokens (App Bridge / URL fallback)
+  const idTokenHeader = req.headers['x-shopify-id-token'];
+  if (idTokenHeader && verifySessionToken(String(idTokenHeader))) return true;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const bearer = authHeader.slice(7);
+    if (bearer && verifySessionToken(bearer)) return true;
+  }
   return false;
 }
 

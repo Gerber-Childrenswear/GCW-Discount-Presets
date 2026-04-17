@@ -3,7 +3,7 @@ import { SHOPIFY_API_VERSION } from '../config.js';
 import { requireAdmin, requireBuilder, requireViewer, hasPermission } from '../rbac.js';
 import { getOrExchangeToken } from '../shopify-utils.js';
 import { reportError } from '../error-logger.js';
-import { discountsStore } from '../discount-store.js';
+import { discountsStore, registerDiscount } from '../discount-store.js';
 import { DEFAULT_SHOP } from '../config.js';
 import { autoActivateAsFunction, autoActivateAsBasic } from '../shopify-utils.js';
 
@@ -308,6 +308,12 @@ router.post('/api/discount/:id/activate-function', requireAdmin, async (req, res
     if (!shopifyDiscountId) {
       return res.status(400).json({ error: 'Failed to create function discount' });
     }
+
+    registerDiscount(
+      shopifyDiscountId,
+      shop,
+      isShippingDiscount ? 'shipping-function' : 'function-engine'
+    );
 
     discountsStore[id].shopify_discount_id = shopifyDiscountId;
     discountsStore[id].activated = true;

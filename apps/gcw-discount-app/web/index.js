@@ -203,10 +203,7 @@ const DISCOUNT_DISCOVERY_SCAN_TTL_MS = Math.max(
   60000,
   Number(process.env.GCW_DISCOUNT_DISCOVERY_SCAN_TTL_MS || (15 * 60 * 1000))
 );
-const DISCOUNT_DISCOVERY_SCAN_MAX_PAGES = Math.max(
-  10,
-  Number(process.env.GCW_DISCOUNT_DISCOVERY_SCAN_MAX_PAGES || 100)
-);
+const DISCOUNT_DISCOVERY_RECOVERY_STATUSES = ['active', 'scheduled'];
 const ACTIVE_FUNCTION_STATUSES = new Set(['ACTIVE', 'SCHEDULED']);
 
 function getDiscountDiscoveryScanCache() {
@@ -506,12 +503,25 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
       return r.json();
     };
 
-    // Run targeted title searches in parallel for each discount type the app creates.
-    // This avoids scanning all 5000+ coupon codes (which takes 14s+ and returns nothing useful).
-    // Each search hits Shopify's indexed title field and returns only matching nodes.
-    const discountFragment = `
+    // Keep the fast path focused on app-managed records only:
+    // direct registry lookups plus a narrow title search for shipping campaigns.
+    const discountNodeFragment = `
       id
       discount {
+        ... on DiscountAutomaticApp {
+          discountId
+          title status startsAt endsAt
+          appDiscountType { appKey functionId }
+        }
+      }
+      discount_config: metafield(namespace: "gcw", key: "discount_config") { value }
+      shipping_config: metafield(namespace: "gcw", key: "shipping_config") { value }
+      tiered_config: metafield(namespace: "gcw", key: "tiered_config") { value }
+      bxgy_config: metafield(namespace: "gcw", key: "bxgy_config") { value }
+    `;
+    const automaticDiscountNodeFragment = `
+      id
+      discount: automaticDiscount {
         ... on DiscountAutomaticApp {
           discountId
           title status startsAt endsAt
@@ -535,14 +545,15 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
     const registeredGids = getRegisteredGids(shop);
     const requests = [
       gql(`query { shopifyFunctions(first: 50) { nodes { id apiType title } } }`),
-      gql(`query { discountNodes(first: 50, query: "Free Shipping") { nodes { ${discountFragment} } } }`),
+      gql(`query { discountNodes(first: 50, query: "Free Shipping") { nodes { ${discountNodeFragment} } } }`),
     ];
 
     // Also fetch any registered GIDs directly
     if (registeredGids.length > 0) {
       const fragments = registeredGids.map((gid, idx) => `
         n${idx}: node(id: "${gid}") {
-          ... on DiscountNode { ${discountFragment} }
+          ... on DiscountNode { ${discountNodeFragment} }
+          ... on DiscountAutomaticNode { ${automaticDiscountNodeFragment} }
         }
       `).join('\n');
       requests.push(gql(`query { ${fragments} }`));
@@ -561,12 +572,13 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
       }
     }
 
-    // Merge results, dedup by GID
+    // Merge results, dedup by the underlying automatic discount ID when available.
     const seen = new Set();
     const allNodes = [];
     const addNode = (node) => {
-      if (!node?.id || seen.has(node.id)) return false;
-      seen.add(node.id);
+      const dedupeId = node?.discount?.discountId || node?.id;
+      if (!dedupeId || seen.has(dedupeId)) return false;
+      seen.add(dedupeId);
       allNodes.push(node);
       return true;
     };
@@ -586,16 +598,22 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
 
     // Hardened recovery scan: supplement partial results and backfill the
     // registry with any active app-managed discounts that the fast path missed.
-    const recoveryMeta = { ran: false, pagesScanned: 0, recovered: 0 };
-    if (shouldRunDiscountDiscoveryScan(shop)) {
+    const recoveryMeta = { ran: false, queriesRun: 0, recovered: 0 };
+    const appKey = process.env.SHOPIFY_API_KEY;
+    if (shouldRunDiscountDiscoveryScan(shop) && (functionSourcesById.size > 0 || appKey)) {
       recoveryMeta.ran = true;
-      const appKey = process.env.SHOPIFY_API_KEY;
-      let cursor = null;
-      for (let page = 0; page < DISCOUNT_DISCOVERY_SCAN_MAX_PAGES; page++) {
-        const afterClause = cursor ? `, after: "${cursor}"` : '';
-        const scan = await gql(`query { discountNodes(first: 50${afterClause}) { nodes { ${discountFragment} } pageInfo { hasNextPage endCursor } } }`);
-        const scanNodes = scan?.data?.discountNodes?.nodes || [];
-        recoveryMeta.pagesScanned = page + 1;
+      const scans = await Promise.all(
+        DISCOUNT_DISCOVERY_RECOVERY_STATUSES.map((status) =>
+          gql(`query {
+            automaticDiscountNodes(first: 250, sortKey: ID, query: "type:app status:${status}") {
+              nodes { ${automaticDiscountNodeFragment} }
+            }
+          }`)
+        )
+      );
+      recoveryMeta.queriesRun = scans.length;
+      for (const scan of scans) {
+        const scanNodes = scan?.data?.automaticDiscountNodes?.nodes || [];
         for (const n of scanNodes) {
           const source = inferDiscountSourceFromNode(n, functionSourcesById);
           const functionId = n?.discount?.appDiscountType?.functionId;
@@ -606,7 +624,7 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
 
           if (!source) continue;
           if (!knownConfig && !activeLike) continue;
-          if (!functionOwned && !appOwned && !knownConfig) continue;
+          if (!functionOwned && !appOwned) continue;
 
           const registryId = n?.discount?.discountId || n.id;
           if (registryId) registerDiscount(registryId, shop, source);
@@ -614,9 +632,6 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
             recoveryMeta.recovered += 1;
           }
         }
-        const pi = scan?.data?.discountNodes?.pageInfo;
-        if (!pi?.hasNextPage) break;
-        cursor = pi.endCursor;
       }
       markDiscountDiscoveryScanComplete(shop, recoveryMeta);
     }

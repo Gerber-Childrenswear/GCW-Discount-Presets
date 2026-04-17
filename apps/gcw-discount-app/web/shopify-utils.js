@@ -3,7 +3,7 @@ import { DEFAULT_SHOP, SHOPIFY_API_VERSION, appUrl, hostName, hostScheme } from 
 import { shopSessions, persistSessions, getAccessToken, setRuntimeAccessToken } from './session-store.js';
 import { makeGqlClient } from './graphql-client.js';
 import { reportError } from './error-logger.js';
-import { discountsStore } from './discount-store.js';
+import { discountsStore, registerDiscount } from './discount-store.js';
 
 // Fetch with timeout — prevents hanging requests to Shopify
 const DEFAULT_FETCH_TIMEOUT = 15000; // 15 seconds
@@ -374,6 +374,11 @@ export async function autoActivateAsFunction(shop, accessToken, graphqlUrl, disc
 
     const discountId = createData?.automaticAppDiscount?.discountId;
     if (discountId) {
+      registerDiscount(
+        discountId,
+        shop,
+        isShippingDiscount ? 'shipping-function' : 'function-engine'
+      );
       discount.shopify_discount_id = discountId;
       discount.activated = true;
       discount.function_id = discountFunction.id;

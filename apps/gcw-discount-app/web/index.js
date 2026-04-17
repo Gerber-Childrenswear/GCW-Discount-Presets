@@ -199,6 +199,85 @@ app.use(webhooksRouter);
 app.use(rolesRouter);
 app.use(discountStoreRouter);
 
+const DISCOUNT_DISCOVERY_SCAN_TTL_MS = Math.max(
+  60000,
+  Number(process.env.GCW_DISCOUNT_DISCOVERY_SCAN_TTL_MS || (15 * 60 * 1000))
+);
+const DISCOUNT_DISCOVERY_SCAN_MAX_PAGES = Math.max(
+  10,
+  Number(process.env.GCW_DISCOUNT_DISCOVERY_SCAN_MAX_PAGES || 100)
+);
+const ACTIVE_FUNCTION_STATUSES = new Set(['ACTIVE', 'SCHEDULED']);
+
+function getDiscountDiscoveryScanCache() {
+  if (!globalThis.__gcwDiscountDiscoveryScans) {
+    globalThis.__gcwDiscountDiscoveryScans = {};
+  }
+  return globalThis.__gcwDiscountDiscoveryScans;
+}
+
+function shouldRunDiscountDiscoveryScan(shop) {
+  if (!shop) return true;
+  const cache = getDiscountDiscoveryScanCache();
+  const entry = cache[shop];
+  return !entry || (Date.now() - entry.lastCompletedAt) > DISCOUNT_DISCOVERY_SCAN_TTL_MS;
+}
+
+function markDiscountDiscoveryScanComplete(shop, stats = {}) {
+  if (!shop) return;
+  const cache = getDiscountDiscoveryScanCache();
+  cache[shop] = {
+    lastCompletedAt: Date.now(),
+    stats,
+  };
+}
+
+function normalizeDiscountLookupText(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function hasKnownDiscountConfig(node) {
+  return !!(
+    node?.discount_config?.value ||
+    node?.shipping_config?.value ||
+    node?.tiered_config?.value ||
+    node?.bxgy_config?.value
+  );
+}
+
+function classifyDiscountFunctionSource(fn) {
+  const title = normalizeDiscountLookupText(fn?.title);
+  const apiType = String(fn?.apiType || '').toLowerCase();
+
+  if (title.includes('shipping')) return 'shipping-function';
+  if (title.includes('tiered')) return 'tiered-discount';
+  if (title.includes('bxgy') || (title.includes('buy') && title.includes('get'))) return 'bxgy-discount';
+  if (title.includes('discountfunction')) return 'function-engine';
+  if (title.includes('discount') && !title.includes('shipping') && !title.includes('tiered') && !title.includes('bxgy')) {
+    return 'function-engine';
+  }
+  if (!title && (apiType.includes('delivery') || apiType.includes('shipping'))) return 'shipping-function';
+
+  return null;
+}
+
+function inferDiscountSourceFromNode(node, functionSourcesById = new Map()) {
+  if (node?.discount_config?.value) return 'function-engine';
+  if (node?.shipping_config?.value) return 'shipping-function';
+  if (node?.tiered_config?.value) return 'tiered-discount';
+  if (node?.bxgy_config?.value) return 'bxgy-discount';
+
+  const functionId = node?.discount?.appDiscountType?.functionId;
+  if (functionId && functionSourcesById.has(functionId)) {
+    return functionSourcesById.get(functionId);
+  }
+
+  const title = normalizeDiscountLookupText(node?.discount?.title);
+  if (title.includes('freeshipping')) return 'shipping-function';
+
+  return null;
+}
+
 async function assertAppManagedDiscountForDelete(shop, accessToken, discountId, expectedKeys = []) {
   const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
   const callGql = makeGqlClient(graphqlUrl, accessToken);
@@ -410,8 +489,12 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
     const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
 
     const parseConfig = (raw) => {
-      if (!raw?.value) return null;
-      try { return JSON.parse(raw.value); } catch { return null; }
+      if (!raw?.value) return { hasValue: false, invalid: false, config: {} };
+      try {
+        return { hasValue: true, invalid: false, config: JSON.parse(raw.value) };
+      } catch {
+        return { hasValue: true, invalid: true, config: {} };
+      }
     };
 
     const gql = async (query) => {
@@ -430,6 +513,7 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
       id
       discount {
         ... on DiscountAutomaticApp {
+          discountId
           title status startsAt endsAt
           appDiscountType { appKey functionId }
         }
@@ -448,67 +532,100 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
     // For user-titled discounts we rely on GID registry (future).
     // For now, search by "Free Shipping" (covers shipping discounts)
     // plus registered GIDs for everything else.
-    const searches = [
+    const registeredGids = getRegisteredGids(shop);
+    const requests = [
+      gql(`query { shopifyFunctions(first: 50) { nodes { id apiType title } } }`),
       gql(`query { discountNodes(first: 50, query: "Free Shipping") { nodes { ${discountFragment} } } }`),
     ];
 
     // Also fetch any registered GIDs directly
-    const registeredGids = getRegisteredGids(shop);
     if (registeredGids.length > 0) {
       const fragments = registeredGids.map((gid, idx) => `
         n${idx}: node(id: "${gid}") {
           ... on DiscountNode { ${discountFragment} }
         }
       `).join('\n');
-      searches.push(gql(`query { ${fragments} }`));
+      requests.push(gql(`query { ${fragments} }`));
     }
 
-    const results = await Promise.all(searches);
+    const results = await Promise.all(requests);
+    const functionNodes = results[0]?.data?.shopifyFunctions?.nodes || [];
+    const searchNodes = results[1]?.data?.discountNodes?.nodes || [];
+    const registryNodes = registeredGids.length > 0 && results[2]?.data ? results[2].data : null;
+    const functionSourcesById = new Map();
+
+    for (const fn of functionNodes) {
+      const source = classifyDiscountFunctionSource(fn);
+      if (source) {
+        functionSourcesById.set(fn.id, source);
+      }
+    }
 
     // Merge results, dedup by GID
     const seen = new Set();
     const allNodes = [];
+    const addNode = (node) => {
+      if (!node?.id || seen.has(node.id)) return false;
+      seen.add(node.id);
+      allNodes.push(node);
+      return true;
+    };
 
     // From title search
-    const searchNodes = results[0]?.data?.discountNodes?.nodes || [];
     for (const n of searchNodes) {
-      if (!seen.has(n.id)) { seen.add(n.id); allNodes.push(n); }
+      addNode(n);
     }
 
     // From GID registry
-    if (registeredGids.length > 0 && results[1]?.data) {
-      for (const key of Object.keys(results[1].data)) {
-        const n = results[1].data[key];
-        if (n && !seen.has(n.id)) { seen.add(n.id); allNodes.push(n); }
+    if (registryNodes) {
+      for (const key of Object.keys(registryNodes)) {
+        const n = registryNodes[key];
+        if (n) addNode(n);
       }
     }
 
-    // Fallback discovery: if targeted search + registry found nothing,
-    // do a bounded scan and keep only discounts owned by this app.
-    if (allNodes.length === 0) {
+    // Hardened recovery scan: supplement partial results and backfill the
+    // registry with any active app-managed discounts that the fast path missed.
+    const recoveryMeta = { ran: false, pagesScanned: 0, recovered: 0 };
+    if (shouldRunDiscountDiscoveryScan(shop)) {
+      recoveryMeta.ran = true;
       const appKey = process.env.SHOPIFY_API_KEY;
       let cursor = null;
-      for (let page = 0; page < 10; page++) {
+      for (let page = 0; page < DISCOUNT_DISCOVERY_SCAN_MAX_PAGES; page++) {
         const afterClause = cursor ? `, after: "${cursor}"` : '';
         const scan = await gql(`query { discountNodes(first: 50${afterClause}) { nodes { ${discountFragment} } pageInfo { hasNextPage endCursor } } }`);
         const scanNodes = scan?.data?.discountNodes?.nodes || [];
+        recoveryMeta.pagesScanned = page + 1;
         for (const n of scanNodes) {
-          const appOwned = n?.discount?.appDiscountType?.appKey === appKey;
-          const hasKnownConfig = !!(n?.discount_config?.value || n?.shipping_config?.value || n?.tiered_config?.value || n?.bxgy_config?.value);
-          if (appOwned && hasKnownConfig && !seen.has(n.id)) {
-            seen.add(n.id);
-            allNodes.push(n);
+          const source = inferDiscountSourceFromNode(n, functionSourcesById);
+          const functionId = n?.discount?.appDiscountType?.functionId;
+          const functionOwned = !!functionId && functionSourcesById.has(functionId);
+          const appOwned = !!appKey && n?.discount?.appDiscountType?.appKey === appKey;
+          const activeLike = ACTIVE_FUNCTION_STATUSES.has(n?.discount?.status);
+          const knownConfig = hasKnownDiscountConfig(n);
+
+          if (!source) continue;
+          if (!knownConfig && !activeLike) continue;
+          if (!functionOwned && !appOwned && !knownConfig) continue;
+
+          const registryId = n?.discount?.discountId || n.id;
+          if (registryId) registerDiscount(registryId, shop, source);
+          if (addNode(n)) {
+            recoveryMeta.recovered += 1;
           }
         }
         const pi = scan?.data?.discountNodes?.pageInfo;
         if (!pi?.hasNextPage) break;
         cursor = pi.endCursor;
       }
+      markDiscountDiscoveryScanComplete(shop, recoveryMeta);
     }
 
     const mapNode = (n, configField, source) => {
-      const config = parseConfig(n[configField]);
-      if (!config) return null;
+      const parsed = parseConfig(n[configField]);
+      const inferredSource = inferDiscountSourceFromNode(n, functionSourcesById);
+      if (inferredSource !== source) return null;
+      if (!parsed.hasValue && !ACTIVE_FUNCTION_STATUSES.has(n?.discount?.status)) return null;
       const d = n.discount;
       return {
         id: n.id,
@@ -517,7 +634,9 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
         startsAt: d?.startsAt,
         endsAt: d?.endsAt,
         functionId: d?.appDiscountType?.functionId,
-        config,
+        config: parsed.config,
+        configMissing: !parsed.hasValue,
+        configInvalid: parsed.invalid,
         _source: source,
       };
     };
@@ -531,7 +650,10 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
     const elapsed = Date.now() - startTime;
     const listAllKey = `${feDiscounts.length}:${sfDiscounts.length}:${tdDiscounts.length}:${bxDiscounts.length}`;
     if (global._listAllLastKey !== listAllKey) {
-      console.log(`[ListAll] Found ${totalFound} app-managed in ${elapsed}ms — FE:${feDiscounts.length} SF:${sfDiscounts.length} TD:${tdDiscounts.length} BX:${bxDiscounts.length}`);
+      const recoverySummary = recoveryMeta.ran
+        ? ` | recovery +${recoveryMeta.recovered} in ${recoveryMeta.pagesScanned} page(s)`
+        : '';
+      console.log(`[ListAll] Found ${totalFound} app-managed in ${elapsed}ms — FE:${feDiscounts.length} SF:${sfDiscounts.length} TD:${tdDiscounts.length} BX:${bxDiscounts.length}${recoverySummary}`);
       global._listAllLastKey = listAllKey;
     }
 
@@ -541,7 +663,7 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
       sfDiscounts,
       tdDiscounts,
       bxDiscounts,
-      _meta: { found: totalFound, elapsed },
+      _meta: { found: totalFound, elapsed, recovery: recoveryMeta },
     });
   } catch (error) {
     reportError(error, { area: 'discounts_list_all' });

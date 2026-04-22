@@ -57,6 +57,9 @@ const RATE_LIMIT_MAX_KEYS = 10000; // max tracked IPs before forced eviction
 function rateLimit(req, res, next) {
   // Skip rate limiting for static assets
   if (req.path.startsWith('/gcw-logo') || req.path.endsWith('.svg') || req.path.endsWith('.ico')) return next();
+  // Webhook endpoints must not be rate-limited — Shopify retries on 429 which
+  // creates retry storms. They are HMAC-verified independently.
+  if (req.path.startsWith('/api/webhooks')) return next();
   const key = req.ip || req.connection.remoteAddress || 'unknown';
   const now = Date.now();
   if (!rateLimitStore[key]) rateLimitStore[key] = [];
@@ -666,7 +669,7 @@ app.get('/api/discounts/list-all', requireViewer, heavyRateLimit(15), async (req
     const listAllKey = `${feDiscounts.length}:${sfDiscounts.length}:${tdDiscounts.length}:${bxDiscounts.length}`;
     if (global._listAllLastKey !== listAllKey) {
       const recoverySummary = recoveryMeta.ran
-        ? ` | recovery +${recoveryMeta.recovered} in ${recoveryMeta.pagesScanned} page(s)`
+        ? ` | recovery +${recoveryMeta.recovered} in ${recoveryMeta.queriesRun} quer(ies)`
         : '';
       console.log(`[ListAll] Found ${totalFound} app-managed in ${elapsed}ms — FE:${feDiscounts.length} SF:${sfDiscounts.length} TD:${tdDiscounts.length} BX:${bxDiscounts.length}${recoverySummary}`);
       global._listAllLastKey = listAllKey;
@@ -771,7 +774,7 @@ app.get('/api/discounts/debug-query', requireViewer, heavyRateLimit(10), async (
 });
 
 // Diagnostic: list ALL automatic discounts (separate Shopify endpoint)
-app.get('/api/discounts/debug-automatic', requireViewer, async (req, res) => {
+app.get('/api/discounts/debug-automatic', requireViewer, heavyRateLimit(10), async (req, res) => {
   try {
     const { shop, accessToken } = await getOrExchangeToken(req);
     if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });

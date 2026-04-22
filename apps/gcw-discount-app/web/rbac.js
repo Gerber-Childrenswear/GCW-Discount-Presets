@@ -7,6 +7,9 @@ import crypto from 'crypto';
 // ---------------------------------------------------------------------------
 
 const APP_PASSWORD = process.env.GCW_APP_PASSWORD || 'Sugi2.0';
+if (!process.env.GCW_APP_PASSWORD) {
+  console.warn('[Auth] WARNING: GCW_APP_PASSWORD env var not set — using default password. Set this in Render before going live.');
+}
 const COOKIE_NAME = 'gcw_auth';
 const COOKIE_SECRET = process.env.SESSION_ENCRYPTION_KEY || process.env.SHOPIFY_API_SECRET || 'gcw-fallback-key';
 
@@ -98,7 +101,7 @@ export function verifyPassword(password) {
 // JWT verify — kept so token exchange still works for Shopify OAuth
 {
   const _s = (process.env.SHOPIFY_API_SECRET || '').trim();
-  console.log(`[JWT-BOOT] SHOPIFY_API_SECRET loaded — len=${_s.length}, start=${_s.substring(0,4)}..., end=...${_s.substring(_s.length - 4)}`);
+  console.log(`[JWT-BOOT] SHOPIFY_API_SECRET loaded: ${_s ? 'yes' : 'no'} (len=${_s.length})`);
 }
 
 export function verifySessionToken(token) {

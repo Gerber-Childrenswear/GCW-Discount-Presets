@@ -6,9 +6,17 @@ use std::collections::HashSet;
 const DEFAULT_DISCOUNT_PERCENT: f64 = 25.0;
 const DEFAULT_MESSAGE: &str = "Extra 25% Off Applied!";
 
-// Tags queryable in input.graphql via hasTags():
-// discount, sale, clearance, markdown, promo, special, new,
-// featured, bundle, exclusive, seasonal, summer, winter, spring, fall
+// Tags queryable in input.graphql via hasTags() — configurable via included_tags / exclude_tags:
+// discount, sale, clearance, markdown, promo,
+// bundle, bogo, bxgy, gift,
+// holiday, flash-sale, doorbuster, flag:doorbuster, outlet, overstock,
+// member, vip, loyalty,
+// baby, toddler, kids, infant, newborn, boys, girls,
+// nfl,
+// preorder, backorder
+//
+// Hard-exclusion tags via hasAnyTag() (excludeCheck) — always skipped, not configurable:
+// no discount, no discount:strict, final-sale, no-return, DOTW
 
 #[typegen("./schema.graphql")]
 pub mod schema {
@@ -40,13 +48,27 @@ fn run(input: schema::run::Input) -> Result<schema::CartLinesDiscountsGenerateRu
             };
             let product = pv.product();
 
-            // Collect the tags this product actually has from hasTags() response
-            let product_tags: HashSet<String> = product
-                .tag_checks()
-                .iter()
-                .filter(|tc| *tc.has_tag())
-                .map(|tc| tc.tag().to_ascii_lowercase())
-                .collect();
+            // Hard-exclusion fast path: hasAnyTag() covers
+            // no discount, no discount:strict, final-sale, no-return, DOTW.
+            // A single Boolean — no per-tag iteration needed.
+            // Note: flag:doorbuster is NOT here — it is configurable via hasTags()
+            // so doorbuster campaigns can target it via included_tags.
+            if *product.exclude_check() {
+                return None;
+            }
+
+            // Only build the tag set if tag filtering is configured — avoids a
+            // heap allocation per cart line for discounts that apply to all products.
+            let product_tags: HashSet<String> = if filter.needs_tag_check() {
+                product
+                    .tag_checks()
+                    .iter()
+                    .filter(|tc| *tc.has_tag())
+                    .map(|tc| tc.tag().to_ascii_lowercase())
+                    .collect()
+            } else {
+                HashSet::new()
+            };
 
             if !filter.should_include(
                 product.id(),
@@ -225,6 +247,10 @@ struct ProductFilter {
 }
 
 impl ProductFilter {
+    fn needs_tag_check(&self) -> bool {
+        !self.exclude_tags.is_empty() || !self.included_tags.is_empty()
+    }
+
     fn from_config(config: &DiscountConfig) -> Self {
         // Merge array + CSV sources for included tags
         let mut included = normalize_set(&config.included_tags);
@@ -403,6 +429,7 @@ mod tests {
                     "productType": product_type,
                     "isGiftCard": is_gift_card,
                     "vendor": vendor,
+                    "excludeCheck": false,
                     "tagChecks": tag_checks
                 }
             }
@@ -771,6 +798,35 @@ mod tests {
         );
         let result = run_function_with_input(run, &input)?;
         assert!(result.operations.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_hard_exclusion_tag_excludes_product() -> Result<()> {
+        // A product with excludeCheck=true (e.g. tagged flag:doorbuster or
+        // no discount) must be skipped regardless of other config.
+        let line_hard_excluded = serde_json::json!({
+            "id": "gid://shopify/CartLine/1",
+            "quantity": 1,
+            "merchandise": {
+                "__typename": "ProductVariant",
+                "id": "gid://shopify/ProductVariant/111",
+                "product": {
+                    "id": "gid://shopify/Product/100",
+                    "productType": "Onesie",
+                    "isGiftCard": false,
+                    "vendor": "Gerber",
+                    "excludeCheck": true,
+                    "tagChecks": []
+                }
+            }
+        });
+        let input = make_input(
+            Some(r#"{"percentage":25}"#),
+            vec![line_hard_excluded],
+        );
+        let result = run_function_with_input(run, &input)?;
+        assert!(result.operations.is_empty(), "hard-excluded product should not receive a discount");
         Ok(())
     }
 }

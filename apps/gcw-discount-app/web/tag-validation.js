@@ -4,12 +4,15 @@ export const AVAILABLE_FUNCTION_TAGS = [
   'seasonal', 'summer', 'winter', 'spring', 'fall',
   'holiday', 'bogo', 'bxgy', 'buy-one-get-one', 'gift',
   'bestseller', 'limited', 'outlet', 'overstock', 'doorbuster',
+  'flag:doorbuster', 'no discount', 'no discount:strict',
   'flash-sale', 'member', 'vip', 'loyalty', 'rewards',
   'baby', 'toddler', 'kids', 'infant', 'newborn',
   'boys', 'girls', 'unisex', 'organic', 'essentials',
   'sleepwear', 'onesies', 'bodysuits', 'sets', 'accessories',
   'final-sale', 'no-return', 'preorder', 'backorder', 'new-arrival',
   '25-off', '30-off', '40-off', '50-off', 'free-gift',
+  'nfl',
+  'DOTW',
 ];
 
 export const AVAILABLE_BXGY_TAGS = AVAILABLE_FUNCTION_TAGS;

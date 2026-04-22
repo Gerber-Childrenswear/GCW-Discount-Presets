@@ -135,6 +135,7 @@ cd extensions/gcw-shipping-function && cargo test --lib
 |---|---|---|
 | `SHOPIFY_API_KEY` | Yes | App client ID |
 | `SHOPIFY_API_SECRET` | Yes | App client secret |
+| `SESSION_ENCRYPTION_KEY` | Yes (prod) | Encrypts persisted session tokens at rest; use a long random secret |
 | `HOST` | Yes | Public URL (e.g., `https://gcw-dev.onrender.com`) |
 | `PORT` | No | Server port (default: `8081`) |
 | `SCOPES` | Yes | OAuth scopes |

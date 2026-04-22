@@ -17,18 +17,19 @@ query Input {
             productType
             isGiftCard
             vendor
+            excludeCheck: hasAnyTag(tags: [
+              "no discount", "no discount:strict",
+              "final-sale", "no-return", "DOTW"
+            ])
             tagChecks: hasTags(tags: [
               "discount", "sale", "clearance", "markdown", "promo",
-              "special", "new", "featured", "bundle", "exclusive",
-              "seasonal", "summer", "winter", "spring", "fall",
-              "holiday", "bogo", "bxgy", "buy-one-get-one", "gift",
-              "bestseller", "limited", "outlet", "overstock", "doorbuster",
-              "flash-sale", "member", "vip", "loyalty", "rewards",
+              "bundle", "bogo", "bxgy", "gift",
+              "holiday", "flash-sale", "doorbuster", "flag:doorbuster", "outlet", "overstock",
+              "member", "vip", "loyalty",
               "baby", "toddler", "kids", "infant", "newborn",
-              "boys", "girls", "unisex", "organic", "essentials",
-              "sleepwear", "onesies", "bodysuits", "sets", "accessories",
-              "final-sale", "no-return", "preorder", "backorder", "new-arrival",
-              "25-off", "30-off", "40-off", "50-off", "free-gift"
+              "boys", "girls",
+              "nfl",
+              "preorder", "backorder"
             ]) {
               hasTag
               tag

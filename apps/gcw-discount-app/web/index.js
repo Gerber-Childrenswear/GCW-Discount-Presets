@@ -1944,8 +1944,8 @@ app.get('/api/shipping-function/list', requireViewer, async (req, res) => {
     }
 
     console.log(`[SF List] Scanned ${allNodes.length} automatic discounts`);
-    // Only log all node details on first call or when count changes
-    if (!global._sfListLastCount || global._sfListLastCount !== allNodes.length) {
+    // Verbose node dump — only when DEBUG_SF_LIST=1 and count changed (avoids expensive log I/O in prod)
+    if (process.env.DEBUG_SF_LIST === '1' && (!global._sfListLastCount || global._sfListLastCount !== allNodes.length)) {
       const allTitles = allNodes.map(n => `"${n.discount?.title || '(no title)'}" meta=${n.metafield?.value ? 'YES' : 'null'}`);
       console.log(`[SF List] All nodes:`, allTitles.join(' | '));
       global._sfListLastCount = allNodes.length;

@@ -7566,6 +7566,11 @@ app.get('/', async (req, res) => {
           try {
             const headers = await getApiHeaders();
             const resp = await fetch(withShopParam('/api/checkout-shipping-progress'), { headers });
+            if (resp.status === 401 || resp.status === 403) {
+              // Auth not yet established — silently show default ready state
+              updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false));
+              return;
+            }
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.error || 'Could not load checkout bar settings');
             if (data.config?.configured) {
@@ -7578,7 +7583,8 @@ app.get('/', async (req, res) => {
               status.style.color = '#64748b';
             }
           } catch (err) {
-            if (status) { status.textContent = 'Load warning: ' + err.message; status.style.color = '#c0392b'; }
+            // Network errors silently show default state
+            updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false));
           }
         }
 

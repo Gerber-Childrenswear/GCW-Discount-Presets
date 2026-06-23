@@ -13,7 +13,7 @@ api_version = "2025-07"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_discounts,write_discounts,read_functions,write_functions,read_users,read_orders,read_products"
+scopes = "read_discounts,write_discounts,read_orders,read_products"
 
 [auth]
 redirect_urls = [ "https://gcw-dev.onrender.com/api/auth/callback" ]

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { PreviewDiscountModal } from './PreviewDiscountModal';
 import { DiscountAPI } from '../api/discountApi';
 import type { Discount as PreviewDiscount } from '../types';
+import { CheckoutFreeShippingProgressFields } from './CheckoutFreeShippingProgressFields';
+import type { CheckoutProgressValues } from './CheckoutFreeShippingProgressFields';
 
 interface Discount {
   id: string;
@@ -30,7 +32,30 @@ interface DiscountFormData {
   end_date: string;
   cart_message: string;
   checkout_message: string;
+  show_checkout_progress?: boolean;
+  checkout_progress_starts_at?: string;
+  checkout_progress_ends_at?: string;
+  checkout_progress_remaining_message?: string;
+  checkout_progress_success_message?: string;
 }
+
+interface StandaloneBarConfig {
+  enabled: boolean;
+  threshold: number;
+  remaining_message: string;
+  success_message: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+const DEFAULT_STANDALONE: StandaloneBarConfig = {
+  enabled: true,
+  threshold: 35,
+  remaining_message: "Spend {{amount}} more to reach free shipping!",
+  success_message: "You are eligible for free shipping, use code STOCKUP35 in checkout.",
+  starts_at: '',
+  ends_at: '',
+};
 
 export function DiscountManager() {
   const [discounts, setDiscounts] = useState<Discount[]>([]);
@@ -40,6 +65,11 @@ export function DiscountManager() {
   const [formData, setFormData] = useState<DiscountFormData | null>(null);
   const [previewDiscount, setPreviewDiscount] = useState<PreviewDiscount | null>(null);
   const [activeTab, setActiveTab] = useState<'active' | 'inactive'>('active');
+
+  const [standaloneBar, setStandaloneBar] = useState<StandaloneBarConfig>(DEFAULT_STANDALONE);
+  const [standaloneLoading, setStandaloneLoading] = useState(true);
+  const [standaloneSaving, setStandaloneSaving] = useState(false);
+  const [standaloneStatus, setStandaloneStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const buildPreviewDiscount = (discount: Discount): PreviewDiscount => {
     const valueLabel = discount.type === 'percentage'
@@ -67,7 +97,58 @@ export function DiscountManager() {
 
   useEffect(() => {
     loadDiscounts();
+    loadStandaloneBar();
   }, []);
+
+  const loadStandaloneBar = async () => {
+    try {
+      setStandaloneLoading(true);
+      const res = await fetch('/api/checkout-shipping-progress');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.config) {
+        setStandaloneBar({
+          enabled: data.config.enabled ?? true,
+          threshold: Number(data.config.threshold) || 35,
+          remaining_message: data.config.remaining_message || DEFAULT_STANDALONE.remaining_message,
+          success_message: data.config.success_message || DEFAULT_STANDALONE.success_message,
+          starts_at: data.config.starts_at || '',
+          ends_at: data.config.ends_at || '',
+        });
+      }
+    } catch {
+      // silently fall back to defaults
+    } finally {
+      setStandaloneLoading(false);
+    }
+  };
+
+  const saveStandaloneBar = async () => {
+    setStandaloneSaving(true);
+    setStandaloneStatus(null);
+    try {
+      const res = await fetch('/api/checkout-shipping-progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: standaloneBar.enabled,
+          threshold: standaloneBar.threshold,
+          remaining_message: standaloneBar.remaining_message,
+          success_message: standaloneBar.success_message,
+          starts_at: standaloneBar.starts_at || null,
+          ends_at: standaloneBar.ends_at || null,
+          show_meter: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Save failed');
+      setStandaloneStatus({ ok: true, msg: 'Saved!' });
+    } catch (err) {
+      setStandaloneStatus({ ok: false, msg: err instanceof Error ? err.message : 'Save failed' });
+    } finally {
+      setStandaloneSaving(false);
+    }
+  };
 
   const loadDiscounts = async () => {
     try {
@@ -162,10 +243,79 @@ export function DiscountManager() {
         />
       )}
       {/* Header */}
-      <div style={{ marginBottom: '32px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '8px', color: '#1f2937' }}>Discount Manager</h1>
         <p style={{ color: '#6b7280', fontSize: '15px' }}>Create and manage promotional discounts for your store</p>
       </div>
+
+      {/* ── STANDALONE CHECKOUT PROGRESS BAR ──────────────────────────────── */}
+      <div style={{ background: 'white', border: '2px solid #002744', borderRadius: '10px', padding: '20px', marginBottom: '32px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+          <span style={{ background: '#002744', color: 'white', fontSize: '10px', fontWeight: 700, letterSpacing: '0.8px', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>Extension</span>
+          <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#1f2937' }}>Standalone Checkout Progress Bar</h2>
+        </div>
+        <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#6b7280' }}>
+          Always-on bar in checkout, independent of any discount function. Threshold and messages are set here.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={standaloneBar.enabled} onChange={e => setStandaloneBar(s => ({ ...s, enabled: e.target.checked }))} />
+            Enabled in checkout
+          </label>
+
+          <label style={{ fontSize: '12px', fontWeight: 600 }}>
+            Free shipping threshold ($)
+            <input type="number" min={1} max={500} value={standaloneBar.threshold}
+              onChange={e => setStandaloneBar(s => ({ ...s, threshold: Number(e.target.value) }))}
+              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+          </label>
+
+          <div />
+
+          <label style={{ fontSize: '12px', fontWeight: 600 }}>
+            Remaining message <span style={{ color: '#9ca3af', fontWeight: 400 }}>(use {'{{amount}}'})</span>
+            <input type="text" maxLength={160} value={standaloneBar.remaining_message}
+              onChange={e => setStandaloneBar(s => ({ ...s, remaining_message: e.target.value }))}
+              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+          </label>
+
+          <label style={{ fontSize: '12px', fontWeight: 600 }}>
+            Success message
+            <input type="text" maxLength={160} value={standaloneBar.success_message}
+              onChange={e => setStandaloneBar(s => ({ ...s, success_message: e.target.value }))}
+              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+          </label>
+
+          <label style={{ fontSize: '12px', fontWeight: 600 }}>
+            Schedule start (optional)
+            <input type="datetime-local" value={standaloneBar.starts_at}
+              onChange={e => setStandaloneBar(s => ({ ...s, starts_at: e.target.value }))}
+              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+          </label>
+
+          <label style={{ fontSize: '12px', fontWeight: 600 }}>
+            Schedule end (optional)
+            <input type="datetime-local" value={standaloneBar.ends_at}
+              onChange={e => setStandaloneBar(s => ({ ...s, ends_at: e.target.value }))}
+              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+          </label>
+        </div>
+
+        <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={saveStandaloneBar} disabled={standaloneSaving}
+            style={{ padding: '8px 20px', background: '#002744', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, fontSize: '13px', cursor: standaloneSaving ? 'wait' : 'pointer' }}>
+            {standaloneSaving ? 'Saving…' : 'Save'}
+          </button>
+          {standaloneStatus && (
+            <span style={{ fontSize: '13px', color: standaloneStatus.ok ? '#059669' : '#dc2626', fontWeight: 600 }}>
+              {standaloneStatus.msg}
+            </span>
+          )}
+          {standaloneLoading && <span style={{ fontSize: '12px', color: '#9ca3af' }}>Loading current config…</span>}
+        </div>
+      </div>
+      {/* ── END STANDALONE BAR ────────────────────────────────────────────── */}
 
       {/* Error Alert */}
       {error && (
@@ -487,10 +637,20 @@ function DiscountForm({
   onCancel,
 }: {
   formData: DiscountFormData;
-  onChange: (field: string, value: string | number) => void;
+  onChange: (field: string, value: string | number | boolean) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const isFreeShipping = formData.type === 'free_shipping';
+
+  const progressValues: CheckoutProgressValues = {
+    show_checkout_progress: formData.show_checkout_progress ?? false,
+    checkout_progress_starts_at: formData.checkout_progress_starts_at,
+    checkout_progress_ends_at: formData.checkout_progress_ends_at,
+    checkout_progress_remaining_message: formData.checkout_progress_remaining_message,
+    checkout_progress_success_message: formData.checkout_progress_success_message,
+  };
+
   return (
     <div
       style={{
@@ -501,7 +661,13 @@ function DiscountForm({
         marginBottom: '20px',
       }}
     >
-      <h2 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Edit Discount</h2>
+      <h2 style={{ marginBottom: '4px', fontSize: '18px', fontWeight: '600' }}>Edit Discount</h2>
+      {isFreeShipping && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+          <span style={{ background: '#7c3aed', color: 'white', fontSize: '10px', fontWeight: 700, letterSpacing: '0.8px', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>Function</span>
+          <span style={{ fontSize: '12px', color: '#6b7280' }}>Free shipping discount — threshold drives the checkout bar below</span>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
         <div>
@@ -598,6 +764,20 @@ function DiscountForm({
           />
         </div>
       </div>
+
+      {isFreeShipping && (
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <span style={{ background: '#7c3aed', color: 'white', fontSize: '10px', fontWeight: 700, letterSpacing: '0.8px', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>Function-Linked Bar</span>
+            <span style={{ fontSize: '12px', color: '#6b7280' }}>Shows in checkout only while this discount is active. Threshold = ${formData.value}.</span>
+          </div>
+          <CheckoutFreeShippingProgressFields
+            value={progressValues}
+            threshold={formData.value}
+            onChange={(field, val) => onChange(field, val)}
+          />
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
         <button

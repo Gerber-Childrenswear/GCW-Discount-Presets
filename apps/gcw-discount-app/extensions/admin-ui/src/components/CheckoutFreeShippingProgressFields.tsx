@@ -1,4 +1,3 @@
-import React from 'react';
 
 export interface CheckoutProgressValues {
   show_checkout_progress?: boolean;

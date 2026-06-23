@@ -64,7 +64,7 @@ export function DiscountManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<DiscountFormData | null>(null);
   const [previewDiscount, setPreviewDiscount] = useState<PreviewDiscount | null>(null);
-  const [activeTab, setActiveTab] = useState<'active' | 'inactive'>('active');
+  const [activeTab, setActiveTab] = useState<'active' | 'inactive' | 'checkout-bar'>('active');
 
   const [standaloneBar, setStandaloneBar] = useState<StandaloneBarConfig>(DEFAULT_STANDALONE);
   const [standaloneLoading, setStandaloneLoading] = useState(true);
@@ -248,75 +248,6 @@ export function DiscountManager() {
         <p style={{ color: '#6b7280', fontSize: '15px' }}>Create and manage promotional discounts for your store</p>
       </div>
 
-      {/* ── STANDALONE CHECKOUT PROGRESS BAR ──────────────────────────────── */}
-      <div style={{ background: 'white', border: '2px solid #002744', borderRadius: '10px', padding: '20px', marginBottom: '32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-          <span style={{ background: '#002744', color: 'white', fontSize: '10px', fontWeight: 700, letterSpacing: '0.8px', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>Extension</span>
-          <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#1f2937' }}>Standalone Checkout Progress Bar</h2>
-        </div>
-        <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#6b7280' }}>
-          Always-on bar in checkout, independent of any discount function. Threshold and messages are set here.
-        </p>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 600, gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={standaloneBar.enabled} onChange={e => setStandaloneBar(s => ({ ...s, enabled: e.target.checked }))} />
-            Enabled in checkout
-          </label>
-
-          <label style={{ fontSize: '12px', fontWeight: 600 }}>
-            Free shipping threshold ($)
-            <input type="number" min={1} max={500} value={standaloneBar.threshold}
-              onChange={e => setStandaloneBar(s => ({ ...s, threshold: Number(e.target.value) }))}
-              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
-          </label>
-
-          <div />
-
-          <label style={{ fontSize: '12px', fontWeight: 600 }}>
-            Remaining message <span style={{ color: '#9ca3af', fontWeight: 400 }}>(use {'{{amount}}'})</span>
-            <input type="text" maxLength={160} value={standaloneBar.remaining_message}
-              onChange={e => setStandaloneBar(s => ({ ...s, remaining_message: e.target.value }))}
-              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
-          </label>
-
-          <label style={{ fontSize: '12px', fontWeight: 600 }}>
-            Success message
-            <input type="text" maxLength={160} value={standaloneBar.success_message}
-              onChange={e => setStandaloneBar(s => ({ ...s, success_message: e.target.value }))}
-              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
-          </label>
-
-          <label style={{ fontSize: '12px', fontWeight: 600 }}>
-            Schedule start (optional)
-            <input type="datetime-local" value={standaloneBar.starts_at}
-              onChange={e => setStandaloneBar(s => ({ ...s, starts_at: e.target.value }))}
-              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
-          </label>
-
-          <label style={{ fontSize: '12px', fontWeight: 600 }}>
-            Schedule end (optional)
-            <input type="datetime-local" value={standaloneBar.ends_at}
-              onChange={e => setStandaloneBar(s => ({ ...s, ends_at: e.target.value }))}
-              style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
-          </label>
-        </div>
-
-        <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={saveStandaloneBar} disabled={standaloneSaving}
-            style={{ padding: '8px 20px', background: '#002744', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, fontSize: '13px', cursor: standaloneSaving ? 'wait' : 'pointer' }}>
-            {standaloneSaving ? 'Saving…' : 'Save'}
-          </button>
-          {standaloneStatus && (
-            <span style={{ fontSize: '13px', color: standaloneStatus.ok ? '#059669' : '#dc2626', fontWeight: 600 }}>
-              {standaloneStatus.msg}
-            </span>
-          )}
-          {standaloneLoading && <span style={{ fontSize: '12px', color: '#9ca3af' }}>Loading current config…</span>}
-        </div>
-      </div>
-      {/* ── END STANDALONE BAR ────────────────────────────────────────────── */}
-
       {/* Error Alert */}
       {error && (
         <div
@@ -392,6 +323,22 @@ export function DiscountManager() {
         >
           Paused ({inactiveDiscounts.length})
         </button>
+        <button
+          onClick={() => setActiveTab('checkout-bar')}
+          style={{
+            padding: '12px 20px',
+            fontSize: '15px',
+            fontWeight: activeTab === 'checkout-bar' ? '600' : '400',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'checkout-bar' ? '3px solid #002744' : 'none',
+            color: activeTab === 'checkout-bar' ? '#002744' : '#6b7280',
+            cursor: 'pointer',
+            marginBottom: '-18px',
+          }}
+        >
+          Checkout Bar
+        </button>
       </div>
 
       {/* Discount Grid */}
@@ -451,6 +398,77 @@ export function DiscountManager() {
             </div>
           )}
         </>
+      )}
+
+      {activeTab === 'checkout-bar' && (
+        <div style={{ maxWidth: '720px' }}>
+          <div style={{ background: 'white', border: '2px solid #002744', borderRadius: '10px', padding: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+              <span style={{ background: '#002744', color: 'white', fontSize: '10px', fontWeight: 700, letterSpacing: '0.8px', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>Extension</span>
+              <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#1f2937' }}>Standalone Checkout Progress Bar</h2>
+            </div>
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#6b7280' }}>
+              Always-on bar in checkout, independent of any discount function. The function-linked bar is configured inside each free-shipping discount's edit form.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600, gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={standaloneBar.enabled} onChange={e => setStandaloneBar(s => ({ ...s, enabled: e.target.checked }))} />
+                Enabled in checkout
+              </label>
+
+              <label style={{ fontSize: '12px', fontWeight: 600 }}>
+                Free shipping threshold ($)
+                <input type="number" min={1} max={500} value={standaloneBar.threshold}
+                  onChange={e => setStandaloneBar(s => ({ ...s, threshold: Number(e.target.value) }))}
+                  style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+              </label>
+
+              <div />
+
+              <label style={{ fontSize: '12px', fontWeight: 600 }}>
+                Remaining message <span style={{ color: '#9ca3af', fontWeight: 400 }}>(use {'{{amount}}'})</span>
+                <input type="text" maxLength={160} value={standaloneBar.remaining_message}
+                  onChange={e => setStandaloneBar(s => ({ ...s, remaining_message: e.target.value }))}
+                  style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+              </label>
+
+              <label style={{ fontSize: '12px', fontWeight: 600 }}>
+                Success message
+                <input type="text" maxLength={160} value={standaloneBar.success_message}
+                  onChange={e => setStandaloneBar(s => ({ ...s, success_message: e.target.value }))}
+                  style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+              </label>
+
+              <label style={{ fontSize: '12px', fontWeight: 600 }}>
+                Schedule start (optional)
+                <input type="datetime-local" value={standaloneBar.starts_at}
+                  onChange={e => setStandaloneBar(s => ({ ...s, starts_at: e.target.value }))}
+                  style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+              </label>
+
+              <label style={{ fontSize: '12px', fontWeight: 600 }}>
+                Schedule end (optional)
+                <input type="datetime-local" value={standaloneBar.ends_at}
+                  onChange={e => setStandaloneBar(s => ({ ...s, ends_at: e.target.value }))}
+                  style={{ display: 'block', width: '100%', marginTop: '4px', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px' }} />
+              </label>
+            </div>
+
+            <div style={{ marginTop: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button onClick={saveStandaloneBar} disabled={standaloneSaving}
+                style={{ padding: '8px 20px', background: '#002744', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, fontSize: '13px', cursor: standaloneSaving ? 'wait' : 'pointer' }}>
+                {standaloneSaving ? 'Saving…' : 'Save'}
+              </button>
+              {standaloneStatus && (
+                <span style={{ fontSize: '13px', color: standaloneStatus.ok ? '#059669' : '#dc2626', fontWeight: 600 }}>
+                  {standaloneStatus.msg}
+                </span>
+              )}
+              {standaloneLoading && <span style={{ fontSize: '12px', color: '#9ca3af' }}>Loading current config…</span>}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -23,6 +23,12 @@ import {
   AVAILABLE_FUNCTION_TAGS, AVAILABLE_BXGY_TAGS, validateTags, AVAILABLE_FUNCTION_VENDORS,
 } from './tag-validation.js';
 import { discountsStore, registerDiscount, getRegisteredGids } from './discount-store.js';
+import {
+  buildShippingProgressConfig,
+  clearShippingProgressMetafield,
+  getShippingProgressMetafield,
+  syncShippingProgressMetafield,
+} from './lib/shipping-progress-config.js';
 
 // Route modules
 import authRouter from './routes/auth.js';
@@ -225,6 +231,204 @@ async function assertAppManagedDiscountForDelete(shop, accessToken, discountId, 
 
   return { ok: true, appManagedKeys };
 }
+
+function buildShippingProgressPayload({ discountId, config, startsAt, endsAt, enabled }) {
+  const threshold = Number(config?.threshold) || 50;
+  return {
+    id: discountId,
+    source: 'function',
+    value: threshold,
+    comparison: 'gt',
+    show_checkout_progress: enabled === true && config?.show_checkout_progress === true,
+    checkout_progress_starts_at: startsAt || null,
+    checkout_progress_ends_at: endsAt || null,
+    checkout_progress_remaining_message:
+      config?.checkout_progress_remaining_message || "You're {{amount}} away from FREE SHIPPING",
+    checkout_progress_success_message:
+      config?.checkout_progress_success_message || "You've unlocked FREE SHIPPING!",
+  };
+}
+
+async function getShippingProgressPayloadForDiscount(callGql, discountNodeId, enabled, configOverride = null) {
+  const response = await callGql(
+    `query ShippingProgressSource($id: ID!) {
+      discountNode(id: $id) {
+        id
+        shippingConfig: metafield(namespace: "gcw", key: "shipping_config") { value }
+        discount {
+          ... on DiscountAutomaticApp {
+            startsAt
+            endsAt
+          }
+        }
+      }
+    }`,
+    { id: discountNodeId },
+  );
+
+  const node = response?.result?.data?.discountNode;
+  const rawConfig = node?.shippingConfig?.value;
+  if (!response?.ok || (!rawConfig && !configOverride)) return null;
+
+  let config = {};
+  if (configOverride && typeof configOverride === 'object') {
+    config = configOverride;
+  } else {
+    try { config = JSON.parse(rawConfig || '{}'); } catch { config = {}; }
+  }
+
+  return buildShippingProgressPayload({
+    discountId: discountNodeId,
+    config,
+    startsAt: node?.discount?.startsAt,
+    endsAt: node?.discount?.endsAt,
+    enabled,
+  });
+}
+
+function logShippingProgressWarning(result, context) {
+  if (result?.ok === false) {
+    console.warn(`[ShippingProgress] ${context}: ${result.warning || 'unknown warning'}`);
+  }
+}
+
+function mapCheckoutProgressConfigForApi(config = null) {
+  const hasConfig = !!config && typeof config === 'object';
+  return {
+    configured: hasConfig,
+    enabled: config?.enabled === true,
+    source: config?.source || null,
+    threshold: Number(config?.threshold) || 35,
+    promo_code: typeof config?.promoCode === 'string' ? config.promoCode : '',
+    show_meter: config?.showProgressBar !== false,
+    show_code_instruction: config?.showCodeInstruction !== false,
+    starts_at: config?.startsAt || null,
+    ends_at: config?.endsAt || null,
+    remaining_message:
+      config?.remainingMessage || 'Spend {{amount}} more to reach free shipping!',
+    success_message:
+      config?.successMessage || 'You are eligible for free shipping.',
+    code_prompt_message:
+      config?.codePromptMessage || 'Use code {{code}} at checkout',
+    code_applied_message:
+      config?.codeAppliedMessage || 'Code {{code}} is applied',
+    synced_at: config?.syncedAt || null,
+  };
+}
+
+// Standalone checkout progress bar config. This is intentionally independent
+// from Shopify Functions so code-based free-shipping promos can show in checkout.
+app.get('/api/checkout-shipping-progress', requireViewer, async (req, res) => {
+  try {
+    const { shop, accessToken } = await getOrExchangeToken(req);
+    if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });
+
+    const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+    const callGql = makeGqlClient(graphqlUrl, accessToken);
+    const current = await getShippingProgressMetafield(callGql);
+    if (!current.ok) return res.status(400).json({ error: current.warning });
+
+    res.json({ success: true, config: mapCheckoutProgressConfigForApi(current.config) });
+  } catch (error) {
+    reportError(error, { area: 'checkout_shipping_progress_get' });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/checkout-shipping-progress', requireAdmin, async (req, res) => {
+  try {
+    const {
+      enabled, threshold, promo_code, starts_at, ends_at,
+      show_meter, show_code_instruction,
+      remaining_message, success_message,
+      code_prompt_message, code_applied_message,
+    } = req.body || {};
+
+    const thresholdNum = Number(threshold);
+    if (!Number.isFinite(thresholdNum) || thresholdNum < 1 || thresholdNum > 1000) {
+      return res.status(400).json({ error: 'Threshold must be between 1 and 1000.' });
+    }
+
+    if (promo_code && !/^[A-Za-z0-9_-]{1,64}$/.test(String(promo_code).trim())) {
+      return res.status(400).json({ error: 'Promo code can only contain letters, numbers, underscores, and hyphens.' });
+    }
+
+    const previewConfig = buildShippingProgressConfig({
+      source: 'manual',
+      value: thresholdNum,
+      comparison: 'gte',
+      promo_code,
+      show_checkout_progress: enabled === true,
+      checkout_progress_show_meter: show_meter !== false,
+      checkout_progress_show_code_instruction: show_code_instruction !== false,
+      checkout_progress_starts_at: starts_at,
+      checkout_progress_ends_at: ends_at,
+      checkout_progress_remaining_message: remaining_message,
+      checkout_progress_success_message: success_message,
+      checkout_progress_code_prompt_message: code_prompt_message,
+      checkout_progress_code_applied_message: code_applied_message,
+    });
+
+    if (starts_at && !previewConfig.startsAt) {
+      return res.status(400).json({ error: 'Start date is invalid for Eastern time.' });
+    }
+    if (ends_at && !previewConfig.endsAt) {
+      return res.status(400).json({ error: 'End date is invalid for Eastern time.' });
+    }
+    if (
+      previewConfig.startsAt &&
+      previewConfig.endsAt &&
+      Date.parse(previewConfig.startsAt) >= Date.parse(previewConfig.endsAt)
+    ) {
+      return res.status(400).json({ error: 'End date must be after start date.' });
+    }
+
+    const { shop, accessToken } = await getOrExchangeToken(req);
+    if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });
+
+    const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+    const callGql = makeGqlClient(graphqlUrl, accessToken);
+    const result = await syncShippingProgressMetafield(callGql, {
+      id: 'manual-checkout-shipping-progress',
+      source: 'manual',
+      value: thresholdNum,
+      comparison: 'gte',
+      promo_code,
+      show_checkout_progress: enabled === true,
+      checkout_progress_show_meter: show_meter !== false,
+      checkout_progress_show_code_instruction: show_code_instruction !== false,
+      checkout_progress_starts_at: starts_at,
+      checkout_progress_ends_at: ends_at,
+      checkout_progress_remaining_message: remaining_message,
+      checkout_progress_success_message: success_message,
+      checkout_progress_code_prompt_message: code_prompt_message,
+      checkout_progress_code_applied_message: code_applied_message,
+    });
+
+    if (!result.ok) return res.status(400).json({ error: result.warning });
+    res.json({ success: true, config: mapCheckoutProgressConfigForApi(result.config) });
+  } catch (error) {
+    reportError(error, { area: 'checkout_shipping_progress_save' });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/checkout-shipping-progress', requireAdmin, async (req, res) => {
+  try {
+    const { shop, accessToken } = await getOrExchangeToken(req);
+    if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });
+
+    const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+    const callGql = makeGqlClient(graphqlUrl, accessToken);
+    const result = await clearShippingProgressMetafield(callGql, { source: 'manual' });
+    if (!result.ok) return res.status(400).json({ error: result.warning });
+
+    res.json({ success: true, config: mapCheckoutProgressConfigForApi(result.config) });
+  } catch (error) {
+    reportError(error, { area: 'checkout_shipping_progress_disable' });
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.post('/api/function-engine/deploy', requireAdmin, async (req, res) => {
   try {
@@ -1125,6 +1329,7 @@ app.post('/api/deployed-discount/:discountNodeId/toggle-status', requireAdmin, a
     if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });
 
     const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+    const callGql = makeGqlClient(graphqlUrl, accessToken);
     const mutation = action === 'activate'
       ? `mutation discountAutomaticActivate($id: ID!) {
            discountAutomaticActivate(id: $id) {
@@ -1172,6 +1377,17 @@ app.post('/api/deployed-discount/:discountNodeId/toggle-status', requireAdmin, a
       return res.status(502).json({ error: 'Shopify mutation succeeded but returned no status — please retry' });
     }
     console.log(`[ToggleStatus] ${action} discount ${discountNodeId} → ${newStatus}`);
+    const progressPayload = await getShippingProgressPayloadForDiscount(
+      callGql,
+      discountNodeId,
+      action === 'activate',
+    );
+    if (progressPayload) {
+      const progressResult = action === 'activate'
+        ? await syncShippingProgressMetafield(callGql, progressPayload)
+        : await clearShippingProgressMetafield(callGql, { onlySource: 'function', source: 'function' });
+      logShippingProgressWarning(progressResult, `${action} ${discountNodeId}`);
+    }
     res.json({ success: true, status: newStatus });
   } catch (error) {
     reportError(error, { area: 'deployed_discount_toggle' });
@@ -1226,6 +1442,21 @@ app.put('/api/deployed-discount/:discountNodeId/update-config', requireAdmin, as
       return res.status(400).json({ error: data.userErrors[0].message });
     }
     console.log(`[UpdateConfig] Updated ${metafieldKey} on ${discountNodeId}`);
+    if (metafieldKey === 'shipping_config') {
+      const callGql = makeGqlClient(graphqlUrl, accessToken);
+      const progressPayload = await getShippingProgressPayloadForDiscount(
+        callGql,
+        discountNodeId,
+        config?.show_checkout_progress === true,
+        config,
+      );
+      if (progressPayload) {
+      const progressResult = config?.show_checkout_progress === true
+        ? await syncShippingProgressMetafield(callGql, progressPayload)
+        : await clearShippingProgressMetafield(callGql, { onlySource: 'function', source: 'function' });
+        logShippingProgressWarning(progressResult, `update-config ${discountNodeId}`);
+      }
+    }
     res.json({ success: true });
   } catch (error) {
     reportError(error, { area: 'deployed_discount_update_config' });
@@ -1240,7 +1471,7 @@ app.put('/api/deployed-discount/:discountNodeId/update-config', requireAdmin, as
 // Deploy a new shipping function discount — ADMIN ONLY
 app.post('/api/shipping-function/deploy', requireAdmin, async (req, res) => {
   try {
-    const { title, threshold, message, starts_at, ends_at,
+    const { title, threshold, message, starts_at, ends_at, show_checkout_progress,
             combines_with_order, combines_with_product, combines_with_shipping } = req.body;
 
     const thresholdNum = Number(threshold);
@@ -1311,6 +1542,9 @@ app.post('/api/shipping-function/deploy', requireAdmin, async (req, res) => {
     const shippingConfig = {
       threshold: thresholdNum,
       message: message || 'Free Shipping',
+      show_checkout_progress: show_checkout_progress === true,
+      checkout_progress_remaining_message: "You're {{amount}} away from FREE SHIPPING",
+      checkout_progress_success_message: "You've unlocked FREE SHIPPING!",
     };
 
     const startsAt = starts_at ? new Date(starts_at).toISOString() : new Date().toISOString();
@@ -1365,6 +1599,14 @@ app.post('/api/shipping-function/deploy', requireAdmin, async (req, res) => {
 
     const disc = createData?.automaticAppDiscount;
     console.log(`[ShippingFunction] Created: ${disc?.title} (${disc?.discountId})`);
+    const progressResult = await syncShippingProgressMetafield(callGql, buildShippingProgressPayload({
+      discountId: disc?.discountId,
+      config: shippingConfig,
+      startsAt,
+      endsAt,
+      enabled: true,
+    }));
+    logShippingProgressWarning(progressResult, `deploy ${disc?.discountId}`);
     res.json({ success: true, discount: disc, config: shippingConfig });
   } catch (error) {
     reportError(error, { area: 'shipping_function_deploy' });
@@ -1498,6 +1740,12 @@ app.delete('/api/shipping-function/:discountId', requireAdmin, async (req, res) 
 
     const data = result.data?.discountAutomaticDelete;
     if (data?.userErrors?.length) return res.status(400).json({ error: data.userErrors[0].message });
+
+    const callGql = makeGqlClient(graphqlUrl, accessToken);
+    logShippingProgressWarning(
+      await clearShippingProgressMetafield(callGql, { onlySource: 'function', source: 'function' }),
+      `delete ${discountId}`,
+    );
 
     console.log(`[ShippingFunction] Deleted discount: ${discountId}`);
     res.json({ success: true, deletedId: data?.deletedAutomaticDiscountId });
@@ -4499,6 +4747,86 @@ app.get('/', async (req, res) => {
               Set a minimum cart threshold and the function automatically applies 100% off shipping for qualifying orders.
             </p>
 
+            <div class="form-card" style="border-left:4px solid #0f766e;margin-bottom:24px;">
+              <div class="form-card-title">Checkout Free Shipping Progress Bar</div>
+              <p style="color:var(--text-secondary);font-size:13px;margin:0 0 16px;">
+                Use this for code-based promos too. It only controls the checkout progress message and does not create or activate a Shopify Function.
+              </p>
+              <div id="cp_working_panel" style="display:flex;align-items:flex-start;gap:10px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+                <div id="cp_working_dot" style="width:10px;height:10px;border-radius:999px;background:#10b981;margin-top:4px;flex:0 0 auto;"></div>
+                <div>
+                  <div id="cp_working_title" style="font-weight:700;color:#065f46;font-size:13px;">Checkout bar is ready to configure</div>
+                  <div id="cp_working_body" style="color:#047857;font-size:12px;margin-top:2px;">Save the settings below, then make sure the checkout block is placed in Shopify Checkout Editor.</div>
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">Minimum Cart Total ($)</label>
+                  <input type="number" id="cp_threshold" min="1" max="1000" value="35" step="1" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Free Shipping Code</label>
+                  <input type="text" id="cp_code" value="FREESHIP35" placeholder="e.g. FREESHIP35" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Start Date & Hour <span style="font-weight:400;color:#6366f1;font-size:11px;">(EST)</span></label>
+                  <div style="display:flex;gap:8px;">
+                    <input type="date" id="cp_starts_date" class="form-input" style="flex:1;" />
+                    <select id="cp_starts_hour" class="form-input" style="width:110px;">${START_HOUR_OPTIONS}</select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">End Date & Hour <span style="font-weight:400;color:#6366f1;font-size:11px;">(EST)</span></label>
+                  <div style="display:flex;gap:8px;">
+                    <input type="date" id="cp_ends_date" class="form-input" style="flex:1;" />
+                    <select id="cp_ends_hour" class="form-input" style="width:110px;">${END_HOUR_OPTIONS}</select>
+                  </div>
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Before Threshold Message</label>
+                  <input type="text" id="cp_remaining_message" value="Spend {{amount}} more to reach free shipping!" class="form-input" />
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Unlocked Message</label>
+                  <input type="text" id="cp_success_message" value="You are eligible for free shipping." class="form-input" />
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Code Prompt Message</label>
+                  <input type="text" id="cp_code_prompt_message" value="Use code {{code}} at checkout" class="form-input" />
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Code Applied Message</label>
+                  <input type="text" id="cp_code_applied_message" value="Code {{code}} is applied" class="form-input" />
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:18px;">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="cp_enabled" checked />
+                  Enable checkout progress bar
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="cp_show_meter" checked />
+                  Show progress meter
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="cp_show_code_instruction" checked />
+                  Show promo-code instruction
+                </label>
+              </div>
+              <p style="color:var(--text-muted);font-size:12px;margin:10px 0 0;">
+                Message tokens: <strong>{{amount}}</strong> inserts the remaining amount and <strong>{{code}}</strong> inserts the promo code.
+              </p>
+              <div class="form-actions">
+                <button id="cp_save_btn" class="btn btn-success" style="padding:12px 28px;font-size:14px;">
+                  Save Checkout Bar
+                </button>
+                <button id="cp_disable_btn" class="btn btn-ghost" style="padding:12px 20px;font-size:14px;">
+                  Disable Bar
+                </button>
+                <span id="cp_status" class="deploy-status-text"></span>
+              </div>
+            </div>
+
             <!-- Create Form -->
             <div class="form-card">
               <div class="form-card-title">Create Free Shipping Rule</div>
@@ -4524,7 +4852,7 @@ app.get('/', async (req, res) => {
                 </div>
                 <div class="threshold-footer">
                   <span>$10</span>
-                  <span class="threshold-active-label" id="sf_preview_label">Cart &#x2265; $50 &#x2192; FREE SHIPPING</span>
+                  <span class="threshold-active-label" id="sf_preview_label">Cart &gt; $50 &#x2192; FREE SHIPPING</span>
                   <span>$100</span>
                 </div>
               </div>
@@ -4548,6 +4876,18 @@ app.get('/', async (req, res) => {
                   <label class="form-label">Checkout Message <span style="font-weight:400;color:#999;">(optional — auto-generated if blank)</span></label>
                   <input type="text" id="sf_message" placeholder="Auto: Free shipping on orders over $50!" class="form-input" />
                 </div>
+              </div>
+
+              <div style="margin-top:18px;">
+                <label class="checkbox-label" style="align-items:flex-start;">
+                  <input type="checkbox" id="sf_show_checkout_progress" checked />
+                  <span>
+                    Show free-shipping progress bar in checkout
+                    <span style="display:block;color:var(--text-muted);font-size:12px;font-weight:400;margin-top:2px;">
+                      Uses this rule's threshold and same EST start/end schedule.
+                    </span>
+                  </span>
+                </label>
               </div>
 
               <!-- Combines With -->
@@ -5606,6 +5946,7 @@ app.get('/', async (req, res) => {
           } else if (source === 'shipping-function') {
             const th = document.getElementById('sf_threshold'); if (th) { th.value = cfg.threshold || 50; updateThresholdPreview(); }
             const sm = document.getElementById('sf_message'); if (sm) sm.value = cfg.message || '';
+            const sp = document.getElementById('sf_show_checkout_progress'); if (sp) sp.checked = cfg.show_checkout_progress !== false;
             const btn = document.getElementById('sf_deploy_btn');
             if (btn) { btn.textContent = 'Update Shipping Config'; btn.dataset.editMode = 'true'; }
           }
@@ -6064,6 +6405,30 @@ app.get('/', async (req, res) => {
             guess.setUTCHours(guess.getUTCHours() + (hour - actualEstHour));
           }
           return guess.toISOString();
+        }
+
+        function setDateTimeFieldsFromIso(dateId, hourId, isoValue) {
+          const dateEl = document.getElementById(dateId);
+          const hourEl = document.getElementById(hourId);
+          if (!dateEl || !hourEl) return;
+          if (!isoValue) {
+            dateEl.value = '';
+            hourEl.value = '00';
+            return;
+          }
+          const dt = new Date(isoValue);
+          if (!Number.isFinite(dt.getTime())) return;
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            hourCycle: 'h23',
+          }).formatToParts(dt);
+          const values = Object.fromEntries(parts.filter(p => p.type !== 'literal').map(p => [p.type, p.value]));
+          dateEl.value = values.year + '-' + values.month + '-' + values.day;
+          hourEl.value = values.hour || '00';
         }
 
         // Track deployed counts for dashboard summary
@@ -6604,7 +6969,7 @@ app.get('/', async (req, res) => {
           const titleField = document.getElementById('sf_title');
           if (previewValue) previewValue.textContent = '$' + clamped.toFixed(2);
           if (previewBar) previewBar.style.width = pct + '%';
-          if (previewLabel) previewLabel.textContent = 'Cart \\u2265 $' + clamped + ' \\u2192 FREE SHIPPING';
+          if (previewLabel) previewLabel.textContent = 'Cart > $' + clamped + ' \\u2192 FREE SHIPPING';
           // Auto-generate title from threshold so it always reflects the actual rule
           if (titleField) titleField.value = 'Free Shipping $' + clamped + '+';
           // Update message placeholder to match threshold
@@ -6642,6 +7007,225 @@ app.get('/', async (req, res) => {
             loadShippingDiscounts();
             loadDiscounts();
           } catch (err) { showToast('Error: ' + err.message, 'error'); }
+        }
+
+        function applyCheckoutProgressConfig(config) {
+          config = config || {};
+          const enabled = document.getElementById('cp_enabled');
+          const showMeter = document.getElementById('cp_show_meter');
+          const showCodeInstruction = document.getElementById('cp_show_code_instruction');
+          const threshold = document.getElementById('cp_threshold');
+          const code = document.getElementById('cp_code');
+          const remaining = document.getElementById('cp_remaining_message');
+          const success = document.getElementById('cp_success_message');
+          const codePrompt = document.getElementById('cp_code_prompt_message');
+          const codeApplied = document.getElementById('cp_code_applied_message');
+
+          if (enabled) enabled.checked = config.enabled !== false;
+          if (showMeter) showMeter.checked = config.show_meter !== false;
+          if (showCodeInstruction) showCodeInstruction.checked = config.show_code_instruction !== false;
+          if (threshold) threshold.value = config.threshold || 35;
+          if (code) code.value = config.promo_code || 'FREESHIP35';
+          if (remaining) remaining.value = config.remaining_message || 'Spend {{amount}} more to reach free shipping!';
+          if (success) success.value = config.success_message || 'You are eligible for free shipping.';
+          if (codePrompt) codePrompt.value = config.code_prompt_message || 'Use code {{code}} at checkout';
+          if (codeApplied) codeApplied.value = config.code_applied_message || 'Code {{code}} is applied';
+
+          setDateTimeFieldsFromIso('cp_starts_date', 'cp_starts_hour', config.starts_at);
+          setDateTimeFieldsFromIso('cp_ends_date', 'cp_ends_hour', config.ends_at);
+          updateCheckoutProgressStatus(config);
+        }
+
+        function getCheckoutProgressFormConfig(configured) {
+          return {
+            configured: configured === true,
+            enabled: document.getElementById('cp_enabled')?.checked === true,
+            threshold: Number(document.getElementById('cp_threshold')?.value) || 35,
+            promo_code: document.getElementById('cp_code')?.value?.trim() || '',
+            show_meter: document.getElementById('cp_show_meter')?.checked !== false,
+            show_code_instruction: document.getElementById('cp_show_code_instruction')?.checked !== false,
+            starts_at: getDateTimeValue('cp_starts_date', 'cp_starts_hour'),
+            ends_at: getDateTimeValue('cp_ends_date', 'cp_ends_hour'),
+            remaining_message: document.getElementById('cp_remaining_message')?.value?.trim() || 'Spend {{amount}} more to reach free shipping!',
+            success_message: document.getElementById('cp_success_message')?.value?.trim() || 'You are eligible for free shipping.',
+            code_prompt_message: document.getElementById('cp_code_prompt_message')?.value?.trim() || 'Use code {{code}} at checkout',
+            code_applied_message: document.getElementById('cp_code_applied_message')?.value?.trim() || 'Code {{code}} is applied',
+          };
+        }
+
+        function updateCheckoutProgressStatus(config) {
+          const panel = document.getElementById('cp_working_panel');
+          const dot = document.getElementById('cp_working_dot');
+          const title = document.getElementById('cp_working_title');
+          const body = document.getElementById('cp_working_body');
+          if (!panel || !dot || !title || !body) return;
+
+          const now = Date.now();
+          const start = config?.starts_at ? Date.parse(config.starts_at) : null;
+          const end = config?.ends_at ? Date.parse(config.ends_at) : null;
+          let bg = '#ecfdf5';
+          let border = '#a7f3d0';
+          let dotColor = '#10b981';
+          let titleColor = '#065f46';
+          let bodyColor = '#047857';
+          let heading = 'Checkout bar is working';
+          let detail = 'Config is saved. The checkout block still needs to be placed in Shopify Checkout Editor if it is not already there.';
+
+          if (!config?.configured) {
+            heading = 'Checkout bar is ready to configure';
+            detail = 'Save the settings below, then make sure the checkout block is placed in Shopify Checkout Editor.';
+            bg = '#eff6ff'; border = '#bfdbfe'; dotColor = '#3b82f6'; titleColor = '#1e40af'; bodyColor = '#1d4ed8';
+          } else if (config.enabled !== true) {
+            heading = 'Checkout bar is disabled';
+            detail = 'The saved metafield is disabled, so customers will not see this checkout bar.';
+            bg = '#f8fafc'; border = '#cbd5e1'; dotColor = '#64748b'; titleColor = '#334155'; bodyColor = '#475569';
+          } else if (start && Number.isFinite(start) && now < start) {
+            heading = 'Checkout bar is scheduled';
+            detail = 'It is saved and will start automatically at the Eastern start time you selected.';
+            bg = '#fffbeb'; border = '#fde68a'; dotColor = '#f59e0b'; titleColor = '#92400e'; bodyColor = '#b45309';
+          } else if (end && Number.isFinite(end) && now >= end) {
+            heading = 'Checkout bar has ended';
+            detail = 'The end time has passed, so customers will not see this checkout bar unless you extend the schedule.';
+            bg = '#fef2f2'; border = '#fecaca'; dotColor = '#ef4444'; titleColor = '#991b1b'; bodyColor = '#b91c1c';
+          }
+
+          panel.style.background = bg;
+          panel.style.borderColor = border;
+          dot.style.background = dotColor;
+          title.style.color = titleColor;
+          body.style.color = bodyColor;
+          title.textContent = heading;
+          body.textContent = detail;
+        }
+
+        async function loadCheckoutProgressSettings() {
+          const status = document.getElementById('cp_status');
+          try {
+            const headers = await getApiHeaders();
+            const resp = await fetch(withShopParam('/api/checkout-shipping-progress'), { headers });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'Could not load checkout bar settings');
+            if (data.config?.configured) {
+              applyCheckoutProgressConfig(data.config);
+            } else {
+              updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false));
+            }
+            if (status && data.config?.configured && data.config?.synced_at) {
+              status.textContent = 'Loaded current checkout config';
+              status.style.color = '#64748b';
+            }
+          } catch (err) {
+            if (status) { status.textContent = 'Load warning: ' + err.message; status.style.color = '#c0392b'; }
+          }
+        }
+
+        function initCheckoutProgressSettings() {
+          const saveBtn = document.getElementById('cp_save_btn');
+          const disableBtn = document.getElementById('cp_disable_btn');
+          if (!saveBtn && !disableBtn) return;
+
+          const startDate = document.getElementById('cp_starts_date');
+          const endDate = document.getElementById('cp_ends_date');
+          const endHour = document.getElementById('cp_ends_hour');
+          if (startDate && !startDate.value) startDate.value = '2026-06-24';
+          if (endDate && !endDate.value) endDate.value = '2026-06-27';
+          if (endHour) endHour.value = '03';
+
+          [
+            'cp_enabled',
+            'cp_show_meter',
+            'cp_show_code_instruction',
+            'cp_threshold',
+            'cp_code',
+            'cp_starts_date',
+            'cp_starts_hour',
+            'cp_ends_date',
+            'cp_ends_hour',
+            'cp_remaining_message',
+            'cp_success_message',
+            'cp_code_prompt_message',
+            'cp_code_applied_message',
+          ].forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', () => updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false)));
+            el.addEventListener('change', () => updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false)));
+          });
+          updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false));
+
+          loadCheckoutProgressSettings();
+
+          if (saveBtn) {
+            saveBtn.addEventListener('click', async () => {
+              const status = document.getElementById('cp_status');
+              const threshold = Number(document.getElementById('cp_threshold')?.value);
+              if (!threshold || threshold < 1 || threshold > 1000) {
+                showToast('Checkout bar threshold must be between $1 and $1000.', 'error');
+                return;
+              }
+
+              saveBtn.disabled = true;
+              saveBtn.textContent = 'Saving...';
+              if (status) status.textContent = '';
+
+              try {
+                const headers = await getApiHeaders();
+                const body = {
+                  enabled: document.getElementById('cp_enabled')?.checked === true,
+                  threshold,
+                  promo_code: document.getElementById('cp_code')?.value?.trim() || '',
+                  show_meter: document.getElementById('cp_show_meter')?.checked !== false,
+                  show_code_instruction: document.getElementById('cp_show_code_instruction')?.checked !== false,
+                  starts_at: getDateTimeValue('cp_starts_date', 'cp_starts_hour'),
+                  ends_at: getDateTimeValue('cp_ends_date', 'cp_ends_hour'),
+                  remaining_message: document.getElementById('cp_remaining_message')?.value?.trim() || undefined,
+                  success_message: document.getElementById('cp_success_message')?.value?.trim() || undefined,
+                  code_prompt_message: document.getElementById('cp_code_prompt_message')?.value?.trim() || undefined,
+                  code_applied_message: document.getElementById('cp_code_applied_message')?.value?.trim() || undefined,
+                };
+                const resp = await fetch(withShopParam('/api/checkout-shipping-progress'), {
+                  method: 'POST',
+                  headers,
+                  body: JSON.stringify(body),
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || 'Save failed');
+                applyCheckoutProgressConfig(data.config);
+                if (status) { status.textContent = 'Checkout bar saved'; status.style.color = '#10b981'; }
+                showToast('Checkout free-shipping bar saved', 'success');
+              } catch (err) {
+                if (status) { status.textContent = 'Error: ' + err.message; status.style.color = '#c0392b'; }
+              } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Checkout Bar';
+              }
+            });
+          }
+
+          if (disableBtn) {
+            disableBtn.addEventListener('click', async () => {
+              const status = document.getElementById('cp_status');
+              disableBtn.disabled = true;
+              disableBtn.textContent = 'Disabling...';
+              try {
+                const headers = await getApiHeaders();
+                const resp = await fetch(withShopParam('/api/checkout-shipping-progress'), {
+                  method: 'DELETE',
+                  headers,
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || 'Disable failed');
+                applyCheckoutProgressConfig(data.config);
+                if (status) { status.textContent = 'Checkout bar disabled'; status.style.color = '#64748b'; }
+                showToast('Checkout free-shipping bar disabled', 'success');
+              } catch (err) {
+                if (status) { status.textContent = 'Error: ' + err.message; status.style.color = '#c0392b'; }
+              } finally {
+                disableBtn.disabled = false;
+                disableBtn.textContent = 'Disable Bar';
+              }
+            });
+          }
         }
 
         // Format title: strip the appended #xxx uniqueness suffix from display
@@ -7082,6 +7666,9 @@ app.get('/', async (req, res) => {
                 const config = {
                   threshold,
                   message: document.getElementById('sf_message')?.value?.trim() || ('Free shipping on orders over $' + threshold + '!'),
+                  show_checkout_progress: document.getElementById('sf_show_checkout_progress')?.checked === true,
+                  checkout_progress_remaining_message: "You're {{amount}} away from FREE SHIPPING",
+                  checkout_progress_success_message: "You've unlocked FREE SHIPPING!",
                 };
                 const resp = await fetch(withShopParam('/api/deployed-discount/' + encodeURIComponent(_editingDiscountId) + '/update-config'), {
                   method: 'PUT', headers, body: JSON.stringify({ config, metafieldKey: 'shipping_config' })
@@ -7109,6 +7696,7 @@ app.get('/', async (req, res) => {
                 message: document.getElementById('sf_message')?.value?.trim() || undefined,
                 starts_at: getDateTimeValue('sf_starts_date', 'sf_starts_hour'),
                 ends_at: getDateTimeValue('sf_ends_date', 'sf_ends_hour'),
+                show_checkout_progress: document.getElementById('sf_show_checkout_progress')?.checked === true,
                 combines_with_order: document.getElementById('sf_combine_order')?.checked || false,
                 combines_with_product: document.getElementById('sf_combine_product')?.checked || false,
                 combines_with_shipping: document.getElementById('sf_combine_shipping')?.checked || false,
@@ -7139,6 +7727,7 @@ app.get('/', async (req, res) => {
               const _sfStarts = document.getElementById('sf_starts_date'); if (_sfStarts) _sfStarts.value = '';
               const _sfEnds = document.getElementById('sf_ends_date'); if (_sfEnds) _sfEnds.value = '';
               const _sfThreshold = document.getElementById('sf_threshold'); if (_sfThreshold) _sfThreshold.value = '50';
+              const _sfProgress = document.getElementById('sf_show_checkout_progress'); if (_sfProgress) _sfProgress.checked = true;
               updateThresholdPreview();
               loadShippingDiscounts();
               loadDiscounts(); // Refresh campaigns tab
@@ -7170,6 +7759,7 @@ app.get('/', async (req, res) => {
           loadDebugLog();
           initUserManagement();
           initFunctionEngine();
+          initCheckoutProgressSettings();
           initShippingFunction();
           initTieredDiscount();
           initBxgyDiscount();

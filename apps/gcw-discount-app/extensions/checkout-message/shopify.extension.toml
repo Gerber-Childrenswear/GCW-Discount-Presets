@@ -10,7 +10,11 @@ type = "ui_extension"
 
   [[extensions.targeting]]
   target = "purchase.checkout.block.render"
-  module = "./src/index.jsx"
+  module = "./src/progress-index.jsx"
 
   [extensions.capabilities]
   api_access = true
+
+  [[extensions.metafields]]
+  namespace = "gcw"
+  key = "shipping_progress"

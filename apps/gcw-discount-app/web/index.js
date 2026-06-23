@@ -5107,6 +5107,16 @@ app.get('/', async (req, res) => {
               <p style="color:var(--text-secondary);font-size:13px;margin:0 0 16px;">
                 Use this for code-based promos too. It only controls the checkout progress message and does not create or activate a Shopify Function.
               </p>
+              <div class="form-group" style="margin-bottom:16px;">
+                <label class="form-label">Mode</label>
+                <select id="cp_mode" class="form-input">
+                  <option value="manual">Code promo / extension only</option>
+                  <option value="function">Shipping Function controls this bar</option>
+                </select>
+                <div id="cp_mode_help" style="color:var(--text-muted);font-size:12px;margin-top:6px;">
+                  Use this mode when Shopify already has a free-shipping discount code. This only shows the checkout progress bar and code messaging.
+                </div>
+              </div>
               <div id="cp_working_panel" style="display:flex;align-items:flex-start;gap:10px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px 14px;margin-bottom:16px;">
                 <div id="cp_working_dot" style="width:10px;height:10px;border-radius:999px;background:#10b981;margin-top:4px;flex:0 0 auto;"></div>
                 <div>
@@ -5237,9 +5247,9 @@ app.get('/', async (req, res) => {
                 <label class="checkbox-label" style="align-items:flex-start;">
                   <input type="checkbox" id="sf_show_checkout_progress" checked />
                   <span>
-                    Show free-shipping progress bar in checkout
+                    Also control the checkout free-shipping progress bar
                     <span style="display:block;color:var(--text-muted);font-size:12px;font-weight:400;margin-top:2px;">
-                      Uses this rule's threshold and same EST start/end schedule.
+                      Use this only when this Shopify Function creates the free-shipping offer. Leave this off for code promos.
                     </span>
                   </span>
                 </label>
@@ -7409,6 +7419,7 @@ app.get('/', async (req, res) => {
 
         function applyCheckoutProgressConfig(config) {
           config = config || {};
+          const mode = document.getElementById('cp_mode');
           const enabled = document.getElementById('cp_enabled');
           const showMeter = document.getElementById('cp_show_meter');
           const showCodeInstruction = document.getElementById('cp_show_code_instruction');
@@ -7419,6 +7430,7 @@ app.get('/', async (req, res) => {
           const codePrompt = document.getElementById('cp_code_prompt_message');
           const codeApplied = document.getElementById('cp_code_applied_message');
 
+          if (mode) mode.value = config.source === 'function' ? 'function' : 'manual';
           if (enabled) enabled.checked = config.enabled !== false;
           if (showMeter) showMeter.checked = config.show_meter !== false;
           if (showCodeInstruction) showCodeInstruction.checked = config.show_code_instruction !== false;
@@ -7431,12 +7443,59 @@ app.get('/', async (req, res) => {
 
           setDateTimeFieldsFromIso('cp_starts_date', 'cp_starts_hour', config.starts_at);
           setDateTimeFieldsFromIso('cp_ends_date', 'cp_ends_hour', config.ends_at);
+          syncCheckoutProgressMode();
           updateCheckoutProgressStatus(config);
+        }
+
+        function getCheckoutProgressMode() {
+          return document.getElementById('cp_mode')?.value === 'function' ? 'function' : 'manual';
+        }
+
+        function syncCheckoutProgressMode() {
+          const mode = getCheckoutProgressMode();
+          const help = document.getElementById('cp_mode_help');
+          const saveBtn = document.getElementById('cp_save_btn');
+          const disableBtn = document.getElementById('cp_disable_btn');
+          const manualFields = [
+            'cp_enabled',
+            'cp_threshold',
+            'cp_code',
+            'cp_starts_date',
+            'cp_starts_hour',
+            'cp_ends_date',
+            'cp_ends_hour',
+            'cp_remaining_message',
+            'cp_success_message',
+            'cp_code_prompt_message',
+            'cp_code_applied_message',
+            'cp_show_meter',
+            'cp_show_code_instruction',
+          ];
+
+          manualFields.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = mode === 'function';
+          });
+
+          if (help) {
+            help.textContent = mode === 'function'
+              ? 'Use this only when the Shipping Function below creates free shipping. Its threshold and schedule will control the checkout bar.'
+              : 'Use this mode when Shopify already has a free-shipping discount code. This only shows the checkout progress bar and code messaging.';
+          }
+          if (saveBtn) {
+            saveBtn.disabled = mode === 'function';
+            saveBtn.textContent = mode === 'function' ? 'Controlled by Function' : 'Save Checkout Bar';
+          }
+          if (disableBtn) {
+            disableBtn.disabled = mode === 'function';
+            disableBtn.textContent = mode === 'function' ? 'Managed by Function' : 'Disable Bar';
+          }
         }
 
         function getCheckoutProgressFormConfig(configured) {
           return {
             configured: configured === true,
+            source: getCheckoutProgressMode() === 'function' ? 'function' : 'manual',
             enabled: document.getElementById('cp_enabled')?.checked === true,
             threshold: Number(document.getElementById('cp_threshold')?.value) || 35,
             promo_code: document.getElementById('cp_code')?.value?.trim() || '',
@@ -7468,11 +7527,16 @@ app.get('/', async (req, res) => {
           let bodyColor = '#047857';
           let heading = 'Checkout bar is working';
           let detail = 'Config is saved. The checkout block still needs to be placed in Shopify Checkout Editor if it is not already there.';
+          const mode = config?.source === 'function' ? 'function' : getCheckoutProgressMode();
 
           if (!config?.configured) {
             heading = 'Checkout bar is ready to configure';
             detail = 'Save the settings below, then make sure the checkout block is placed in Shopify Checkout Editor.';
             bg = '#eff6ff'; border = '#bfdbfe'; dotColor = '#3b82f6'; titleColor = '#1e40af'; bodyColor = '#1d4ed8';
+          } else if (mode === 'function') {
+            heading = 'Checkout bar is controlled by a Shipping Function';
+            detail = 'Use the Shipping Function rule below to change the threshold or schedule. For a code promo, switch Mode to Code promo / extension only and save here.';
+            bg = '#f5f3ff'; border = '#ddd6fe'; dotColor = '#8b5cf6'; titleColor = '#5b21b6'; bodyColor = '#6d28d9';
           } else if (config.enabled !== true) {
             heading = 'Checkout bar is disabled';
             detail = 'The saved metafield is disabled, so customers will not see this checkout bar.';
@@ -7530,6 +7594,7 @@ app.get('/', async (req, res) => {
           if (endHour) endHour.value = '03';
 
           [
+            'cp_mode',
             'cp_enabled',
             'cp_show_meter',
             'cp_show_code_instruction',
@@ -7546,9 +7611,16 @@ app.get('/', async (req, res) => {
           ].forEach((id) => {
             const el = document.getElementById(id);
             if (!el) return;
-            el.addEventListener('input', () => updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false)));
-            el.addEventListener('change', () => updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false)));
+            el.addEventListener('input', () => {
+              syncCheckoutProgressMode();
+              updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false));
+            });
+            el.addEventListener('change', () => {
+              syncCheckoutProgressMode();
+              updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false));
+            });
           });
+          syncCheckoutProgressMode();
           updateCheckoutProgressStatus(getCheckoutProgressFormConfig(false));
 
           loadCheckoutProgressSettings();
@@ -7556,6 +7628,10 @@ app.get('/', async (req, res) => {
           if (saveBtn) {
             saveBtn.addEventListener('click', async () => {
               const status = document.getElementById('cp_status');
+              if (getCheckoutProgressMode() === 'function') {
+                showToast('Switch Mode to Code promo / extension only to save a standalone checkout bar.', 'info');
+                return;
+              }
               const threshold = Number(document.getElementById('cp_threshold')?.value);
               if (!threshold || threshold < 1 || threshold > 1000) {
                 showToast('Checkout bar threshold must be between $1 and $1000.', 'error');
@@ -7595,7 +7671,7 @@ app.get('/', async (req, res) => {
                 if (status) { status.textContent = 'Error: ' + err.message; status.style.color = '#c0392b'; }
               } finally {
                 saveBtn.disabled = false;
-                saveBtn.textContent = 'Save Checkout Bar';
+                syncCheckoutProgressMode();
               }
             });
           }
@@ -7620,7 +7696,7 @@ app.get('/', async (req, res) => {
                 if (status) { status.textContent = 'Error: ' + err.message; status.style.color = '#c0392b'; }
               } finally {
                 disableBtn.disabled = false;
-                disableBtn.textContent = 'Disable Bar';
+                syncCheckoutProgressMode();
               }
             });
           }

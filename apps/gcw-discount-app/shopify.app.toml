@@ -2,7 +2,7 @@
 
 client_id = "0b2fb6e18c009c93349bfcd6636be0cd"
 name = "GCW Discount Presets"
-application_url = "https://gcw-dev.onrender.com"
+application_url = "https://gcw-discount-presets-v2.onrender.com"
 embedded = true
 
 [webhooks]
@@ -17,4 +17,4 @@ api_version = "2025-07"
 scopes = "read_discounts,read_orders,read_products,write_discounts"
 
 [auth]
-redirect_urls = [ "https://gcw-dev.onrender.com/api/auth/callback" ]
+redirect_urls = [ "https://gcw-discount-presets-v2.onrender.com/api/auth/callback" ]

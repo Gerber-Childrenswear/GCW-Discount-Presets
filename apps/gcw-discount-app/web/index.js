@@ -489,7 +489,7 @@ app.post('/api/checkout-shipping-progress', requireAdmin, async (req, res) => {
     }
 
     const { shop, accessToken } = await getOrExchangeToken(req);
-    if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });
+    if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth', needsReauth: true });
 
     const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
     const callGql = makeGqlClient(graphqlUrl, accessToken);
@@ -510,7 +510,14 @@ app.post('/api/checkout-shipping-progress', requireAdmin, async (req, res) => {
       checkout_progress_code_applied_message: code_applied_message,
     });
 
-    if (!result.ok) return res.status(400).json({ error: result.warning });
+    if (!result.ok) {
+      const isAccessDenied = /access.denied|insufficient.scope|write_metafields/i.test(result.warning || '');
+      console.error('[checkout-progress] save failed:', result.warning, '| shop:', shop);
+      if (isAccessDenied) {
+        return res.status(403).json({ error: result.warning, needsReauth: true });
+      }
+      return res.status(400).json({ error: result.warning });
+    }
     res.json({ success: true, config: mapCheckoutProgressConfigForApi(result.config) });
   } catch (error) {
     reportError(error, { area: 'checkout_shipping_progress_save' });
@@ -7749,7 +7756,18 @@ app.get('/', async (req, res) => {
                   body: JSON.stringify(body),
                 });
                 const data = await resp.json();
-                if (!resp.ok) throw new Error(data.error || 'Save failed');
+                if (!resp.ok) {
+                  if (data.needsReauth) {
+                    if (status) {
+                      const reauthShop = new URLSearchParams(window.location.search).get('shop') || '';
+                      status.innerHTML = '<span style="color:#c0392b;">App needs permission to write metafields. </span><a href="/api/auth?shop=' + encodeURIComponent(reauthShop) + '" style="color:#0066cc;text-decoration:underline;">Re-authorize the app</a> then try again.';
+                    }
+                    showToast('App needs re-authorization to save checkout bar settings.', 'error');
+                    saveBtn.textContent = 'Save Checkout Bar';
+                    return;
+                  }
+                  throw new Error(data.error || 'Save failed');
+                }
                 applyCheckoutProgressConfig(data.config);
                 // Visual confirmation: button turns green with checkmark for 2s
                 saveBtn.textContent = '✓ Saved & Live';

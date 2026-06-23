@@ -426,12 +426,17 @@ app.get('/api/checkout-shipping-progress', requireViewer, async (req, res) => {
     const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
     const callGql = makeGqlClient(graphqlUrl, accessToken);
     const current = await getShippingProgressMetafield(callGql);
-    if (!current.ok) return res.status(400).json({ error: current.warning });
+    // If metafield read fails (GraphQL error, token issue, etc.) return empty unconfigured state
+    // rather than a 400 — the client will just show the default form
+    if (!current.ok) {
+      console.warn('[checkout-progress] getShippingProgressMetafield failed:', current.warning);
+      return res.json({ success: true, config: mapCheckoutProgressConfigForApi(null) });
+    }
 
     res.json({ success: true, config: mapCheckoutProgressConfigForApi(current.config) });
   } catch (error) {
     reportError(error, { area: 'checkout_shipping_progress_get' });
-    res.status(500).json({ error: error.message });
+    res.json({ success: true, config: mapCheckoutProgressConfigForApi(null) });
   }
 });
 
@@ -4766,6 +4771,8 @@ app.get('/', async (req, res) => {
             <button id="refreshBtn" class="action-btn secondary" style="padding:8px 16px;font-size:12px;cursor:pointer;">&#x21BB; Refresh</button>
           </div>
           
+          <!-- Checkout bar extension card slot — populated by loadCheckoutBarCard() -->
+          <div id="checkoutBarCardSlot"></div>
           <div class="discount-grid" id="discountsList">
             <div style="text-align:center;padding:48px;grid-column:1/-1;">
               <div style="font-size:28px;margin-bottom:12px;">&#x23F3;</div>
@@ -5593,6 +5600,85 @@ app.get('/', async (req, res) => {
               setTimeout(function() { loadDiscounts(); loadAdvancedRules(); }, 2000);
             }
           }, 1000);
+        }
+
+        // Render the checkout bar extension card in the Campaigns tab
+        async function loadCheckoutBarCard() {
+          const slot = document.getElementById('checkoutBarCardSlot');
+          if (!slot) return;
+          try {
+            const headers = await getApiHeaders();
+            const resp = await fetch(withShopParam('/api/checkout-shipping-progress'), { headers });
+            if (!resp.ok) { slot.innerHTML = ''; return; }
+            const data = await resp.json();
+            const cfg = data.config;
+            if (!cfg || !cfg.configured) { slot.innerHTML = ''; return; }
+
+            const now = Date.now();
+            const start = cfg.starts_at ? Date.parse(cfg.starts_at) : null;
+            const end = cfg.ends_at ? Date.parse(cfg.ends_at) : null;
+            const isLive = cfg.enabled !== false
+              && (start === null || now >= start)
+              && (end === null || now < end);
+            const isScheduled = cfg.enabled !== false && start !== null && now < start;
+            const isEnded = end !== null && now >= end;
+
+            let statusBadge, accentGradient, statusDot;
+            if (isLive) {
+              statusBadge = '<span style="background:#0d9488;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:0.5px;">LIVE</span>';
+              accentGradient = 'background:linear-gradient(90deg,#0f766e,#14b8a6)';
+              statusDot = '#10b981';
+            } else if (isScheduled) {
+              statusBadge = '<span style="background:#6366f1;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:0.5px;">SCHEDULED</span>';
+              accentGradient = 'background:linear-gradient(90deg,#4f46e5,#818cf8)';
+              statusDot = '#818cf8';
+            } else if (isEnded) {
+              statusBadge = '<span style="background:#6b7280;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:0.5px;">ENDED</span>';
+              accentGradient = 'background:linear-gradient(90deg,#6b7280,#9ca3af)';
+              statusDot = '#9ca3af';
+            } else {
+              statusBadge = '<span style="background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:0.5px;">DISABLED</span>';
+              accentGradient = 'background:linear-gradient(90deg,#9ca3af,#d1d5db)';
+              statusDot = '#9ca3af';
+            }
+
+            const threshold = cfg.threshold || 35;
+            const code = cfg.promo_code || '';
+            const successMsg = cfg.success_message || '';
+            const remainingMsg = cfg.remaining_message || '';
+            const scheduleText = (cfg.starts_at || cfg.ends_at)
+              ? (cfg.starts_at ? new Date(cfg.starts_at).toLocaleDateString() : '∞') + ' → ' + (cfg.ends_at ? new Date(cfg.ends_at).toLocaleDateString() : '∞')
+              : 'Always on';
+
+            slot.innerHTML = '<div class="discount-grid" style="margin-bottom:16px;">' +
+              '<div class="discount-card" style="border:2px solid #0d9488;border-radius:12px;overflow:hidden;background:#fff;">' +
+                '<div style="height:4px;' + accentGradient + '"></div>' +
+                '<div class="card-body" style="padding:16px;">' +
+                  '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">' +
+                    '<div style="flex:1;min-width:0;">' +
+                      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">' +
+                        statusBadge +
+                        '<span style="background:#ccfbf1;color:#0f766e;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:0.5px;">EXTENSION ONLY</span>' +
+                        '<span style="background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:0.5px;">NO FUNCTION</span>' +
+                      '</div>' +
+                      '<div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:2px;">Free Shipping Progress Bar</div>' +
+                      '<div style="font-size:12px;color:var(--text-secondary);">$' + threshold + '+ threshold · ' + scheduleText + (code ? ' · Code: ' + escHtml(code) : '') + '</div>' +
+                    '</div>' +
+                    '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">' +
+                      '<span style="width:8px;height:8px;border-radius:50%;background:' + statusDot + ';display:inline-block;"></span>' +
+                    '</div>' +
+                  '</div>' +
+                  (remainingMsg || successMsg ? '<div style="margin-top:10px;padding:8px 10px;background:#f0fdfa;border-radius:6px;font-size:12px;color:#0f766e;">' +
+                    (remainingMsg ? '<div><strong>Before threshold:</strong> ' + escHtml(remainingMsg) + '</div>' : '') +
+                    (successMsg ? '<div style="margin-top:2px;"><strong>Unlocked:</strong> ' + escHtml(successMsg) + '</div>' : '') +
+                  '</div>' : '') +
+                  '<div style="margin-top:10px;border-top:1px solid #ccfbf1;padding-top:8px;">' +
+                    '<button onclick="document.querySelector(\'[data-tab=checkout-bar]\')?.click()" style="background:none;border:none;color:#0f766e;font-size:12px;font-weight:600;cursor:pointer;padding:0;text-decoration:underline;">Edit in Checkout Bar tab &#x2192;</button>' +
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          } catch { slot.innerHTML = ''; }
         }
 
         // Load and render deployed function discounts on the Campaigns tab
@@ -7665,9 +7751,22 @@ app.get('/', async (req, res) => {
                 const data = await resp.json();
                 if (!resp.ok) throw new Error(data.error || 'Save failed');
                 applyCheckoutProgressConfig(data.config);
-                if (status) { status.textContent = 'Checkout bar saved'; status.style.color = '#10b981'; }
-                showToast('Checkout free-shipping bar saved', 'success');
+                // Visual confirmation: button turns green with checkmark for 2s
+                saveBtn.textContent = '✓ Saved & Live';
+                saveBtn.style.background = '#059669';
+                saveBtn.style.borderColor = '#059669';
+                if (status) { status.textContent = ''; }
+                showToast('Checkout bar is live on your store', 'success');
+                loadCheckoutBarCard();
+                setTimeout(() => {
+                  if (saveBtn) {
+                    saveBtn.textContent = 'Save Checkout Bar';
+                    saveBtn.style.background = '';
+                    saveBtn.style.borderColor = '';
+                  }
+                }, 2500);
               } catch (err) {
+                saveBtn.textContent = 'Save Checkout Bar';
                 if (status) { status.textContent = 'Error: ' + err.message; status.style.color = '#c0392b'; }
               } finally {
                 saveBtn.disabled = false;
@@ -7690,12 +7789,14 @@ app.get('/', async (req, res) => {
                 const data = await resp.json();
                 if (!resp.ok) throw new Error(data.error || 'Disable failed');
                 applyCheckoutProgressConfig(data.config);
-                if (status) { status.textContent = 'Checkout bar disabled'; status.style.color = '#64748b'; }
-                showToast('Checkout free-shipping bar disabled', 'success');
+                if (status) { status.textContent = ''; }
+                showToast('Checkout bar disabled', 'success');
+                loadCheckoutBarCard();
               } catch (err) {
                 if (status) { status.textContent = 'Error: ' + err.message; status.style.color = '#c0392b'; }
               } finally {
                 disableBtn.disabled = false;
+                disableBtn.textContent = 'Disable Bar';
                 syncCheckoutProgressMode();
               }
             });
@@ -8229,6 +8330,7 @@ app.get('/', async (req, res) => {
           // Show loading state, then fetch real deployed discounts
           renderDiscounts([]);
           loadDiscounts();
+          loadCheckoutBarCard();
           startPolling();
           loadDebugLog();
           initUserManagement();

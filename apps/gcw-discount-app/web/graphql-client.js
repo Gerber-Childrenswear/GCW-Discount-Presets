@@ -17,7 +17,11 @@ export function makeGqlClient(graphqlUrl, accessToken) {
       try { result = JSON.parse(text); } catch {
         return { ok: false, error: `Non-JSON (HTTP ${response.status})` };
       }
-      if (result.errors) return { ok: false, error: result.errors[0]?.message || 'GraphQL error', result };
+      if (result.errors) {
+        const msg = result.errors[0]?.message || result.errors[0]?.extensions?.code || JSON.stringify(result.errors[0]) || 'Shopify API error';
+        console.error('[GQL] Shopify returned errors:', JSON.stringify(result.errors).substring(0, 500));
+        return { ok: false, error: msg, result };
+      }
       return { ok: true, result };
     } catch (err) {
       clearTimeout(timer);

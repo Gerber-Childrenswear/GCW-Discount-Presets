@@ -4748,6 +4748,7 @@ app.get('/', async (req, res) => {
           <button class="tab active" data-tab="campaigns">Campaigns</button>
           ${permissions.canActivate ? '<button class="tab" data-tab="functions">Function Builder</button>' : ''}
           ${permissions.canActivate ? '<button class="tab" data-tab="shipping">Shipping Function</button>' : ''}
+          ${permissions.canActivate ? '<button class="tab" data-tab="checkout-bar">Checkout Bar</button>' : ''}
           ${permissions.canActivate ? '<button class="tab" data-tab="advanced">Advanced Functions</button>' : ''}
           ${permissions.canManageUsers ? '<button class="tab" data-tab="users">Users</button>' : ''}
           <button class="tab" data-tab="debuglog">Debug Log</button>
@@ -5102,96 +5103,6 @@ app.get('/', async (req, res) => {
               Set a minimum cart threshold and the function automatically applies 100% off shipping for qualifying orders.
             </p>
 
-            <div class="form-card" style="border-left:4px solid #0f766e;margin-bottom:24px;">
-              <div class="form-card-title">Checkout Free Shipping Progress Bar</div>
-              <p style="color:var(--text-secondary);font-size:13px;margin:0 0 16px;">
-                Use this for code-based promos too. It only controls the checkout progress message and does not create or activate a Shopify Function.
-              </p>
-              <div class="form-group" style="margin-bottom:16px;">
-                <label class="form-label">Mode</label>
-                <select id="cp_mode" class="form-input">
-                  <option value="manual">Code promo / extension only</option>
-                  <option value="function">Shipping Function controls this bar</option>
-                </select>
-                <div id="cp_mode_help" style="color:var(--text-muted);font-size:12px;margin-top:6px;">
-                  Use this mode when Shopify already has a free-shipping discount code. This only shows the checkout progress bar and code messaging.
-                </div>
-              </div>
-              <div id="cp_working_panel" style="display:flex;align-items:flex-start;gap:10px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px 14px;margin-bottom:16px;">
-                <div id="cp_working_dot" style="width:10px;height:10px;border-radius:999px;background:#10b981;margin-top:4px;flex:0 0 auto;"></div>
-                <div>
-                  <div id="cp_working_title" style="font-weight:700;color:#065f46;font-size:13px;">Checkout bar is ready to configure</div>
-                  <div id="cp_working_body" style="color:#047857;font-size:12px;margin-top:2px;">Save the settings below, then make sure the checkout block is placed in Shopify Checkout Editor.</div>
-                </div>
-              </div>
-              <div class="form-grid">
-                <div class="form-group">
-                  <label class="form-label">Minimum Cart Total ($)</label>
-                  <input type="number" id="cp_threshold" min="1" max="1000" value="35" step="1" class="form-input" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Free Shipping Code</label>
-                  <input type="text" id="cp_code" value="FREESHIP35" placeholder="e.g. FREESHIP35" class="form-input" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Start Date & Hour <span style="font-weight:400;color:#6366f1;font-size:11px;">(EST)</span></label>
-                  <div style="display:flex;gap:8px;">
-                    <input type="date" id="cp_starts_date" class="form-input" style="flex:1;" />
-                    <select id="cp_starts_hour" class="form-input" style="width:110px;">${START_HOUR_OPTIONS}</select>
-                  </div>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">End Date & Hour <span style="font-weight:400;color:#6366f1;font-size:11px;">(EST)</span></label>
-                  <div style="display:flex;gap:8px;">
-                    <input type="date" id="cp_ends_date" class="form-input" style="flex:1;" />
-                    <select id="cp_ends_hour" class="form-input" style="width:110px;">${END_HOUR_OPTIONS}</select>
-                  </div>
-                </div>
-                <div class="form-group full">
-                  <label class="form-label">Before Threshold Message</label>
-                  <input type="text" id="cp_remaining_message" value="Spend {{amount}} more to reach free shipping!" class="form-input" />
-                </div>
-                <div class="form-group full">
-                  <label class="form-label">Unlocked Message</label>
-                  <input type="text" id="cp_success_message" value="You are eligible for free shipping." class="form-input" />
-                </div>
-                <div class="form-group full">
-                  <label class="form-label">Code Prompt Message</label>
-                  <input type="text" id="cp_code_prompt_message" value="Use code {{code}} at checkout" class="form-input" />
-                </div>
-                <div class="form-group full">
-                  <label class="form-label">Code Applied Message</label>
-                  <input type="text" id="cp_code_applied_message" value="Code {{code}} is applied" class="form-input" />
-                </div>
-              </div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:18px;">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="cp_enabled" checked />
-                  Enable checkout progress bar
-                </label>
-                <label class="checkbox-label">
-                  <input type="checkbox" id="cp_show_meter" checked />
-                  Show progress meter
-                </label>
-                <label class="checkbox-label">
-                  <input type="checkbox" id="cp_show_code_instruction" checked />
-                  Show promo-code instruction
-                </label>
-              </div>
-              <p style="color:var(--text-muted);font-size:12px;margin:10px 0 0;">
-                Message tokens: <strong>{{amount}}</strong> inserts the remaining amount and <strong>{{code}}</strong> inserts the promo code.
-              </p>
-              <div class="form-actions">
-                <button id="cp_save_btn" class="btn btn-success" style="padding:12px 28px;font-size:14px;">
-                  Save Checkout Bar
-                </button>
-                <button id="cp_disable_btn" class="btn btn-ghost" style="padding:12px 20px;font-size:14px;">
-                  Disable Bar
-                </button>
-                <span id="cp_status" class="deploy-status-text"></span>
-              </div>
-            </div>
-
             <!-- Create Form -->
             <div class="form-card">
               <div class="form-card-title">Create Free Shipping Rule</div>
@@ -5278,6 +5189,96 @@ app.get('/', async (req, res) => {
                 <span id="sf_deploy_status" class="deploy-status-text"></span>
               </div>
               <p style="color:var(--text-muted);font-size:12px;margin-top:12px;">Deployed shipping rules appear on the <strong>Campaigns</strong> tab.</p>
+            </div>
+          </div>
+        </div>
+        ` : ''}
+
+        <!-- Checkout Bar Tab (admin only) -->
+        ${permissions.canActivate ? `
+        <div class="tab-panel" id="tab-checkout-bar">
+          <div class="section">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+              <div class="section-title" style="margin:0;">Checkout Free Shipping Progress Bar</div>
+            </div>
+            <p style="color:var(--text-secondary);margin-bottom:20px;">
+              Configure the free-shipping progress bar shown in checkout. Works independently of any Shopify Function — just place the GCW Discount Checkout Message block in the Shopify Checkout Editor.
+            </p>
+
+            <div class="form-card" style="border-left:4px solid #0f766e;">
+              <div id="cp_working_panel" style="display:flex;align-items:flex-start;gap:10px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+                <div id="cp_working_dot" style="width:10px;height:10px;border-radius:999px;background:#10b981;margin-top:4px;flex:0 0 auto;"></div>
+                <div>
+                  <div id="cp_working_title" style="font-weight:700;color:#065f46;font-size:13px;">Checkout bar is ready to configure</div>
+                  <div id="cp_working_body" style="color:#047857;font-size:12px;margin-top:2px;">Save the settings below, then make sure the checkout block is placed in Shopify Checkout Editor.</div>
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">Minimum Cart Total ($)</label>
+                  <input type="number" id="cp_threshold" min="1" max="1000" value="35" step="1" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Free Shipping Code</label>
+                  <input type="text" id="cp_code" value="STOCKUP35" placeholder="e.g. STOCKUP35" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Start Date & Hour <span style="font-weight:400;color:#6366f1;font-size:11px;">(EST)</span></label>
+                  <div style="display:flex;gap:8px;">
+                    <input type="date" id="cp_starts_date" class="form-input" style="flex:1;" />
+                    <select id="cp_starts_hour" class="form-input" style="width:110px;">${START_HOUR_OPTIONS}</select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">End Date & Hour <span style="font-weight:400;color:#6366f1;font-size:11px;">(EST)</span></label>
+                  <div style="display:flex;gap:8px;">
+                    <input type="date" id="cp_ends_date" class="form-input" style="flex:1;" />
+                    <select id="cp_ends_hour" class="form-input" style="width:110px;">${END_HOUR_OPTIONS}</select>
+                  </div>
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Before Threshold Message</label>
+                  <input type="text" id="cp_remaining_message" value="Spend {{amount}} more to reach free shipping!" class="form-input" />
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Unlocked Message</label>
+                  <input type="text" id="cp_success_message" value="You are eligible for free shipping, use code STOCKUP35 in checkout." class="form-input" />
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Code Prompt Message</label>
+                  <input type="text" id="cp_code_prompt_message" value="Use code {{code}} at checkout" class="form-input" />
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Code Applied Message</label>
+                  <input type="text" id="cp_code_applied_message" value="Code {{code}} is applied" class="form-input" />
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:18px;">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="cp_enabled" checked />
+                  Enable checkout progress bar
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="cp_show_meter" checked />
+                  Show progress meter
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="cp_show_code_instruction" checked />
+                  Show promo-code instruction
+                </label>
+              </div>
+              <p style="color:var(--text-muted);font-size:12px;margin:10px 0 0;">
+                Message tokens: <strong>{{amount}}</strong> inserts the remaining amount and <strong>{{code}}</strong> inserts the promo code.
+              </p>
+              <div class="form-actions">
+                <button id="cp_save_btn" class="btn btn-success" style="padding:12px 28px;font-size:14px;">
+                  Save Checkout Bar
+                </button>
+                <button id="cp_disable_btn" class="btn btn-ghost" style="padding:12px 20px;font-size:14px;">
+                  Disable Bar
+                </button>
+                <span id="cp_status" class="deploy-status-text"></span>
+              </div>
             </div>
           </div>
         </div>
@@ -7435,9 +7436,9 @@ app.get('/', async (req, res) => {
           if (showMeter) showMeter.checked = config.show_meter !== false;
           if (showCodeInstruction) showCodeInstruction.checked = config.show_code_instruction !== false;
           if (threshold) threshold.value = config.threshold || 35;
-          if (code) code.value = config.promo_code || 'FREESHIP35';
+          if (code) code.value = config.promo_code || 'STOCKUP35';
           if (remaining) remaining.value = config.remaining_message || 'Spend {{amount}} more to reach free shipping!';
-          if (success) success.value = config.success_message || 'You are eligible for free shipping.';
+          if (success) success.value = config.success_message || 'You are eligible for free shipping, use code STOCKUP35 in checkout.';
           if (codePrompt) codePrompt.value = config.code_prompt_message || 'Use code {{code}} at checkout';
           if (codeApplied) codeApplied.value = config.code_applied_message || 'Code {{code}} is applied';
 
@@ -7504,7 +7505,7 @@ app.get('/', async (req, res) => {
             starts_at: getDateTimeValue('cp_starts_date', 'cp_starts_hour'),
             ends_at: getDateTimeValue('cp_ends_date', 'cp_ends_hour'),
             remaining_message: document.getElementById('cp_remaining_message')?.value?.trim() || 'Spend {{amount}} more to reach free shipping!',
-            success_message: document.getElementById('cp_success_message')?.value?.trim() || 'You are eligible for free shipping.',
+            success_message: document.getElementById('cp_success_message')?.value?.trim() || 'You are eligible for free shipping, use code STOCKUP35 in checkout.',
             code_prompt_message: document.getElementById('cp_code_prompt_message')?.value?.trim() || 'Use code {{code}} at checkout',
             code_applied_message: document.getElementById('cp_code_applied_message')?.value?.trim() || 'Code {{code}} is applied',
           };
@@ -7585,13 +7586,6 @@ app.get('/', async (req, res) => {
           const saveBtn = document.getElementById('cp_save_btn');
           const disableBtn = document.getElementById('cp_disable_btn');
           if (!saveBtn && !disableBtn) return;
-
-          const startDate = document.getElementById('cp_starts_date');
-          const endDate = document.getElementById('cp_ends_date');
-          const endHour = document.getElementById('cp_ends_hour');
-          if (startDate && !startDate.value) startDate.value = '2026-06-24';
-          if (endDate && !endDate.value) endDate.value = '2026-06-27';
-          if (endHour) endHour.value = '03';
 
           [
             'cp_mode',

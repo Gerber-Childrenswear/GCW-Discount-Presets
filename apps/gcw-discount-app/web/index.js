@@ -5690,10 +5690,18 @@ app.get('/', async (req, res) => {
 
         // Load and render deployed function discounts on the Campaigns tab
         // Uses the unified /api/discounts/list-all endpoint (single Shopify query)
-        async function loadDiscounts() {
+        async function loadDiscounts(_retryCount) {
+          const retryCount = _retryCount || 0;
+          const activeContainer = document.getElementById('discountsList');
+          if (retryCount === 0 && activeContainer && activeContainer.innerHTML === '') {
+            activeContainer.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);">Loading campaigns…</div>';
+          }
           try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 20000);
             const headers = await getApiHeaders();
-            const resp = await fetch(withShopParam('/api/discounts/list-all'), { headers });
+            const resp = await fetch(withShopParam('/api/discounts/list-all'), { headers, signal: controller.signal });
+            clearTimeout(timeout);
             const data = await resp.json();
             if (!data.success) throw new Error(data.error || 'Failed to load discounts');
 
@@ -5781,8 +5789,19 @@ app.get('/', async (req, res) => {
             updateDashboardSummary();
           } catch (error) {
             reportClientError(error, { area: 'discounts_list' });
-            renderDiscounts([]);
-            updateActiveCount([]);
+            if (retryCount < 3) {
+              const delay = (retryCount + 1) * 4000;
+              if (activeContainer) {
+                activeContainer.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);">Retrying… (' + (retryCount + 1) + '/3)</div>';
+              }
+              setTimeout(() => loadDiscounts(retryCount + 1), delay);
+            } else {
+              if (activeContainer) {
+                activeContainer.innerHTML = '<div style="text-align:center;padding:32px;color:#c0392b;">Failed to load campaigns. <a href="#" onclick="loadDiscounts();return false;">Retry</a></div>';
+              }
+              renderDiscounts([]);
+              updateActiveCount([]);
+            }
           }
         }
         

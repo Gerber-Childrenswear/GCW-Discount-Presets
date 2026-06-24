@@ -5680,7 +5680,7 @@ app.get('/', async (req, res) => {
                     (successMsg ? '<div style="margin-top:2px;"><strong>Unlocked:</strong> ' + escHtml(successMsg) + '</div>' : '') +
                   '</div>' : '') +
                   '<div style="margin-top:10px;border-top:1px solid #ccfbf1;padding-top:8px;">' +
-                    '<button onclick="document.querySelector(\'[data-tab=checkout-bar]\')?.click()" style="background:none;border:none;color:#0f766e;font-size:12px;font-weight:600;cursor:pointer;padding:0;text-decoration:underline;">Edit in Checkout Bar tab &#x2192;</button>' +
+                    '<button onclick="document.querySelector(\\'[data-tab=checkout-bar]\\')?.click()" style="background:none;border:none;color:#0f766e;font-size:12px;font-weight:600;cursor:pointer;padding:0;text-decoration:underline;">Edit in Checkout Bar tab &#x2192;</button>' +
                   '</div>' +
                 '</div>' +
               '</div>' +

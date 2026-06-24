@@ -77,3 +77,6 @@ Cargo.lock
 extensions/*/target/.rustc_info.json
 extensions/*/target/release/
 extensions/*/target/wasm32-unknown-unknown/release/.cargo-lock
+extensions/*/target/wasm32-unknown-unknown/release/.fingerprint/
+extensions/*/target/wasm32-unknown-unknown/release/deps/
+extensions/*/target/wasm32-unknown-unknown/release/*.d

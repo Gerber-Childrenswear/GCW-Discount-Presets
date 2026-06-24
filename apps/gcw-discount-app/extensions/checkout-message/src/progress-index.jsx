@@ -149,8 +149,8 @@ function formatMoney(amount, currencyCode) {
   }
 }
 
-function renderTemplate(template, replacements) {
-  let rendered = normalizeMessage(template, DEFAULT_CONFIG.remainingMessage);
+function renderTemplate(template, replacements, fallback = DEFAULT_CONFIG.remainingMessage) {
+  let rendered = normalizeMessage(template, fallback);
   for (const [token, value] of Object.entries(replacements || {})) {
     rendered = rendered.split(token).join(String(value));
   }
@@ -227,11 +227,11 @@ function App() {
               ? renderTemplate(config.successMessage, {
                   '{{amount}}': formatMoney(remaining, currencyCode),
                   '{{code}}': config.promoCode,
-                })
+                }, DEFAULT_CONFIG.successMessage)
               : renderTemplate(config.remainingMessage, {
                   '{{amount}}': formatMoney(remaining, currencyCode),
                   '{{code}}': config.promoCode,
-                })}
+                }, DEFAULT_CONFIG.remainingMessage)}
           </Text>
 
           {config.showCodeInstruction && config.promoCode ? (
@@ -240,11 +240,11 @@ function App() {
                 ? renderTemplate(config.codeAppliedMessage, {
                     '{{amount}}': formatMoney(remaining, currencyCode),
                     '{{code}}': config.promoCode,
-                  })
+                  }, DEFAULT_CONFIG.codeAppliedMessage)
                 : renderTemplate(config.codePromptMessage, {
                     '{{amount}}': formatMoney(remaining, currencyCode),
                     '{{code}}': config.promoCode,
-                  })}
+                  }, DEFAULT_CONFIG.codePromptMessage)}
             </Text>
           ) : null}
 

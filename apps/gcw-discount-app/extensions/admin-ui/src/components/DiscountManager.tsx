@@ -19,6 +19,11 @@ interface Discount {
   end_date: string | null;
   activated: boolean;
   shopify_discount_id: string | null;
+  show_checkout_progress?: boolean;
+  checkout_progress_starts_at?: string;
+  checkout_progress_ends_at?: string;
+  checkout_progress_remaining_message?: string;
+  checkout_progress_success_message?: string;
 }
 
 interface DiscountFormData {
@@ -185,6 +190,11 @@ export function DiscountManager() {
       end_date: discount.end_date || '',
       cart_message: discount.cart_message || '',
       checkout_message: discount.checkout_message || '',
+      show_checkout_progress: discount.show_checkout_progress ?? false,
+      checkout_progress_starts_at: discount.checkout_progress_starts_at || '',
+      checkout_progress_ends_at: discount.checkout_progress_ends_at || '',
+      checkout_progress_remaining_message: discount.checkout_progress_remaining_message || '',
+      checkout_progress_success_message: discount.checkout_progress_success_message || '',
     });
   };
 

@@ -20,13 +20,13 @@ const MAX_MESSAGE_LENGTH = 160;
 // Checkout UI extensions cannot read storefront CSS variables or render arbitrary CSS.
 // This component uses Shopify-safe primitives/tokens to mirror the Hyper layout and tone without risking checkout failures.
 const DEFAULT_CONFIG = Object.freeze({
-  enabled: true,
+  enabled: false,
   threshold: 35,
   comparison: 'gte',
   startsAt: null,
   endsAt: null,
   remainingMessage: "Spend {{amount}} more to reach free shipping!",
-  successMessage: "You are eligible for free shipping, use code STOCKUP35 in checkout.",
+  successMessage: "You've unlocked free shipping!",
 });
 
 export default reactExtension('purchase.checkout.block.render', () => <App />);
@@ -172,12 +172,12 @@ function App() {
 
   const rawConfig = metafields?.[0]?.metafield?.value;
   const config = normalizeConfig(rawConfig);
-  const shouldShowProgress = config.enabled && isWithinSchedule(config);
 
   const subtotalAmount = Math.max(0, toFiniteNumber(subtotal?.amount, 0));
   const currencyCode = subtotal?.currencyCode || 'USD';
 
   const subtotalInCents = cents(subtotalAmount);
+  const shouldShowProgress = config.enabled && isWithinSchedule(config) && subtotalInCents > 0;
   const thresholdInCents = thresholdCents(config.threshold);
   const goalInCents =
     config.comparison === 'gte' ? thresholdInCents : thresholdInCents + 1;

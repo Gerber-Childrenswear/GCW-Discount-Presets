@@ -283,21 +283,18 @@ async function setShippingProgressMetafield(callShopify, shopId, configObject) {
 
 export async function syncShippingProgressMetafield(callShopify, discount) {
   try {
-    const current = await getShippingProgressMetafield(callShopify);
-    if (!current.ok) return current;
-
-    // The standalone "Checkout Bar" (source: 'manual') is authoritative. When it
-    // is enabled, discount/function-driven syncs must not overwrite it, otherwise
-    // the manually configured threshold/messages get clobbered by the discount's.
     const incomingSource =
       typeof discount.source === 'string' ? discount.source : 'function';
-    if (
-      incomingSource !== 'manual' &&
-      current.config?.source === 'manual' &&
-      current.config?.enabled === true
-    ) {
-      return { ok: true, skipped: true, config: current.config };
+
+    // The checkout progress bar is owned exclusively by the standalone Checkout
+    // Bar UI (source: 'manual'). Discount/function deploys must never write the
+    // shop metafield or they clobber the manual $35 config with shipping defaults.
+    if (incomingSource !== 'manual') {
+      return { ok: true, skipped: true, reason: 'standalone-checkout-bar-only' };
     }
+
+    const current = await getShippingProgressMetafield(callShopify);
+    if (!current.ok) return current;
 
     const config = buildShippingProgressConfig(discount);
     return await setShippingProgressMetafield(

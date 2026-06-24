@@ -68,10 +68,32 @@ if (!SESSION_ENCRYPTION_KEY) {
 
 export const shopSessions = loadSessions();
 
+// A real Admin API access token starts with shpat_ (or legacy shppa_/shpca_).
+// An API *secret* starts with shpss_ — a common copy/paste mistake that must
+// never be used as a token, or every request 401s with "Invalid API key or
+// access token".
+export function isUsableAccessToken(token) {
+  return typeof token === 'string' && /^shp(at|pa|ca)_/.test(token.trim());
+}
+
+const ENV_DEFAULT_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+const ENV_PROD_TOKEN = process.env.SHOPIFY_PROD_ACCESS_TOKEN;
+
+if (ENV_DEFAULT_TOKEN && !isUsableAccessToken(ENV_DEFAULT_TOKEN)) {
+  console.warn(
+    `[Startup] SHOPIFY_ACCESS_TOKEN does not look like an access token (expected shpat_…, got "${ENV_DEFAULT_TOKEN.slice(0, 6)}…"). Ignoring it.`,
+  );
+}
+if (ENV_PROD_TOKEN && !isUsableAccessToken(ENV_PROD_TOKEN)) {
+  console.warn(
+    `[Startup] SHOPIFY_PROD_ACCESS_TOKEN does not look like an access token (expected shpat_…, got "${ENV_PROD_TOKEN.slice(0, 6)}…"). Falling back to SHOPIFY_ACCESS_TOKEN.`,
+  );
+}
+
 // Pre-seed session from env var so the app works immediately after restart
-if (process.env.SHOPIFY_ACCESS_TOKEN) {
+if (isUsableAccessToken(ENV_DEFAULT_TOKEN)) {
   shopSessions[DEFAULT_SHOP] = {
-    accessToken: process.env.SHOPIFY_ACCESS_TOKEN,
+    accessToken: ENV_DEFAULT_TOKEN,
     scope: 'write_discounts,read_discounts',
     shop: DEFAULT_SHOP,
     installedAt: 'env-var-seed',
@@ -79,9 +101,15 @@ if (process.env.SHOPIFY_ACCESS_TOKEN) {
   console.log(`[Startup] Pre-seeded session for ${DEFAULT_SHOP}`);
 }
 
-// Pre-seed production store if configured
+// Pre-seed production store if configured. Prefer the dedicated prod token, but
+// fall back to SHOPIFY_ACCESS_TOKEN when prod token is missing/invalid so a
+// single misplaced value can't take prod down.
 const PROD_SHOP = process.env.SHOPIFY_PROD_SHOP_DOMAIN;
-const PROD_TOKEN = process.env.SHOPIFY_PROD_ACCESS_TOKEN;
+const PROD_TOKEN = isUsableAccessToken(ENV_PROD_TOKEN)
+  ? ENV_PROD_TOKEN
+  : isUsableAccessToken(ENV_DEFAULT_TOKEN)
+    ? ENV_DEFAULT_TOKEN
+    : null;
 if (PROD_SHOP && PROD_TOKEN) {
   shopSessions[PROD_SHOP] = {
     accessToken: PROD_TOKEN,
@@ -102,9 +130,24 @@ export function setRuntimeAccessToken(token) {
 }
 
 export function getAccessToken(shop) {
-  if (shopSessions[shop]?.accessToken) return shopSessions[shop].accessToken;
-  // Env-var fallback for known shops
-  if (shop === DEFAULT_SHOP) return runtimeAccessToken || process.env.SHOPIFY_ACCESS_TOKEN || null;
-  if (shop === process.env.SHOPIFY_PROD_SHOP_DOMAIN) return process.env.SHOPIFY_PROD_ACCESS_TOKEN || null;
+  // Use the session token only if it actually looks like an access token.
+  const sessionToken = shopSessions[shop]?.accessToken;
+  if (isUsableAccessToken(sessionToken)) return sessionToken;
+
+  // Env-var fallback for known shops — return the first value that is a real
+  // access token, skipping anything misconfigured (e.g. an API secret).
+  const candidates = [];
+  if (shop === DEFAULT_SHOP) {
+    candidates.push(runtimeAccessToken, process.env.SHOPIFY_ACCESS_TOKEN);
+  }
+  if (shop === process.env.SHOPIFY_PROD_SHOP_DOMAIN) {
+    candidates.push(
+      process.env.SHOPIFY_PROD_ACCESS_TOKEN,
+      process.env.SHOPIFY_ACCESS_TOKEN,
+    );
+  }
+  for (const candidate of candidates) {
+    if (isUsableAccessToken(candidate)) return candidate;
+  }
   return null;
 }

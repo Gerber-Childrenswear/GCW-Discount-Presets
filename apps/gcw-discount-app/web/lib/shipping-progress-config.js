@@ -151,10 +151,16 @@ function normalizePromoCode(value) {
   return /^[A-Z0-9_-]{1,64}$/.test(clean) ? clean : '';
 }
 
+export function shippingProgressErrorNeedsReauth(warning = '') {
+  return /access.denied|insufficient.scope|write_metafields|invalid api key|access token/i.test(
+    warning,
+  );
+}
+
 export function buildShippingProgressConfig(discount = {}) {
   const threshold = Math.min(
     1000,
-    Math.max(1, finiteNumber(discount.value ?? discount.threshold, 50)),
+    Math.max(1, finiteNumber(discount.value ?? discount.threshold, 35)),
   );
   const source = typeof discount.source === 'string' && discount.source.length <= 32
     ? discount.source

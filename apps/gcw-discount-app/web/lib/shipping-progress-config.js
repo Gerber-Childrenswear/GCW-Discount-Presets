@@ -1,4 +1,4 @@
-const NAMESPACE = 'gcw';
+const NAMESPACE = '$app:gcw';
 const KEY = 'shipping_progress';
 const TYPE = 'json';
 const CHECKOUT_SCHEDULE_TIME_ZONE = 'America/New_York';
@@ -152,7 +152,7 @@ function normalizePromoCode(value) {
 }
 
 export function shippingProgressErrorNeedsReauth(warning = '') {
-  return /access.denied|insufficient.scope|write_metafields|invalid api key|access token/i.test(
+  return /access.denied|insufficient.scope|invalid api key|access token/i.test(
     warning,
   );
 }

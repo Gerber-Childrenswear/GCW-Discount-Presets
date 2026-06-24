@@ -64,8 +64,8 @@ function normalizeConfig(rawValue) {
     }
 
     const threshold = Math.min(
-      100,
-      Math.max(10, toFiniteNumber(parsed?.threshold, DEFAULT_CONFIG.threshold)),
+      1000,
+      Math.max(1, toFiniteNumber(parsed?.threshold, DEFAULT_CONFIG.threshold)),
     );
     const startsAt = normalizeDateString(parsed?.startsAt);
     const endsAt = normalizeDateString(parsed?.endsAt);
@@ -133,12 +133,18 @@ function formatMoney(amount, currencyCode) {
   }
 }
 
-function renderTemplate(template, replacements) {
-  let rendered = normalizeMessage(template, DEFAULT_CONFIG.remainingMessage);
-  for (const [token, value] of Object.entries(replacements || {})) {
-    rendered = rendered.split(token).join(String(value));
-  }
-  return rendered;
+function renderRemainingMessage(template, amount, currencyCode) {
+  const amountFormatted = formatMoney(amount, currencyCode);
+  const safe = normalizeMessage(template, DEFAULT_CONFIG.remainingMessage);
+  const idx = safe.indexOf('{{amount}}');
+  if (idx === -1) return <>{safe}</>;
+  return (
+    <>
+      {safe.slice(0, idx)}
+      <Text emphasis="bold">{amountFormatted}</Text>
+      {safe.slice(idx + 10)}
+    </>
+  );
 }
 
 function uniqueDiscountAllocations(allocations) {
@@ -166,7 +172,7 @@ function App() {
 
   const rawConfig = metafields?.[0]?.metafield?.value;
   const config = normalizeConfig(rawConfig);
-  const shouldShowProgress = isWithinSchedule(config);
+  const shouldShowProgress = config.enabled && isWithinSchedule(config);
 
   const subtotalAmount = Math.max(0, toFiniteNumber(subtotal?.amount, 0));
   const currencyCode = subtotal?.currencyCode || 'USD';
@@ -196,13 +202,10 @@ function App() {
       {shouldShowProgress ? (
         <BlockStack spacing="extraTight">
           <Text>
-            {unlocked ? (
-              config.successMessage
-            ) : (
-              renderTemplate(config.remainingMessage, {
-                '{{amount}}': formatMoney(remaining, currencyCode),
-              })
-            )}
+            {unlocked
+              ? config.successMessage
+              : renderRemainingMessage(config.remainingMessage, remaining, currencyCode)
+            }
           </Text>
           <Progress
             value={progress}

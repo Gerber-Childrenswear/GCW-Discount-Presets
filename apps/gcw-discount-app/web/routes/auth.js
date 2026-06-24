@@ -1,6 +1,6 @@
 import express, { Router } from 'express';
 import crypto from 'crypto';
-import { appUrl } from '../config.js';
+import { appUrl, SHOPIFY_SCOPES } from '../config.js';
 import { shopSessions, persistSessions, setRuntimeAccessToken } from '../session-store.js';
 import { verifyHmac } from '../security.js';
 import { reportError } from '../error-logger.js';
@@ -22,8 +22,7 @@ router.get('/api/auth', (req, res) => {
   persistSessions();
 
   const redirectUri = `${appUrl}/api/auth/callback`;
-  const scopes = 'write_discounts,read_discounts';
-  const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${process.env.SHOPIFY_API_KEY}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${nonce}`;
+  const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${process.env.SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${nonce}`;
 
   console.log(`[OAuth] Redirecting ${shop} to Shopify authorization`);
   res.redirect(authUrl);

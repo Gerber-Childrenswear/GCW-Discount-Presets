@@ -1,4 +1,8 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+# ============================================================
+# PRODUCTION CONFIG — gerberchildrenswear.myshopify.com
+# Backend: gcw-discount-presets-v2.onrender.com
+# Deploy: npx shopify app deploy --config shopify.app.toml --force
+# ============================================================
 
 client_id = "0b2fb6e18c009c93349bfcd6636be0cd"
 name = "GCW Discount Presets"
@@ -14,7 +18,7 @@ api_version = "2025-07"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_discounts,read_orders,read_products,write_discounts"
+scopes = "read_discounts,read_orders,read_products,write_discounts,read_metafields,write_metafields"
 
 [auth]
 redirect_urls = [ "https://gcw-discount-presets-v2.onrender.com/api/auth/callback" ]

@@ -7,6 +7,9 @@ config({ path: resolve(__dirname, '../.env') });
 
 export const PORT = process.env.PORT || 8081;
 export const SHOPIFY_API_VERSION = '2025-07';
+export const SHOPIFY_SCOPES =
+  process.env.SHOPIFY_APP_SCOPES ||
+  'read_discounts,write_discounts,read_orders,read_products,read_metafields,write_metafields';
 
 export const appUrl = process.env.SHOPIFY_APP_URL || `http://localhost:${PORT}`;
 export const hostName = appUrl.replace(/^https?:\/\//, '');
@@ -22,7 +25,7 @@ console.log('[Shopify App Config]', {
   hostScheme,
   apiKey: process.env.SHOPIFY_API_KEY.substring(0, 8) + '...',
   apiSecret: '[redacted]',
-  scopes: 'write_discounts,read_discounts',
+  scopes: SHOPIFY_SCOPES,
   callbackUrl: `${hostScheme}://${hostName}/api/auth/callback`,
 });
 

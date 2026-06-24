@@ -1,4 +1,8 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+# ============================================================
+# DEV CONFIG — gcw-dev.myshopify.com
+# Backend: gcw-dev.onrender.com
+# Deploy: npx shopify app deploy --config shopify.app.gcw-discount-functions.toml --force
+# ============================================================
 
 client_id = "0b2fb6e18c009c93349bfcd6636be0cd"
 name = "GCW Discount Presets"
@@ -10,7 +14,7 @@ api_version = "2025-07"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_discounts,write_discounts,read_orders"
+scopes = "read_discounts,write_discounts,read_orders,read_metafields,write_metafields"
 
 [auth]
 redirect_urls = [

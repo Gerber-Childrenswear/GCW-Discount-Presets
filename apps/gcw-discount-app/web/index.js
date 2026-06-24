@@ -3,7 +3,7 @@ import cookieParser from 'cookie-parser';
 import crypto from 'crypto';
 
 // Shared modules
-import { PORT, SHOPIFY_API_VERSION, appUrl, hostName, hostScheme, DEFAULT_SHOP } from './config.js';
+import { PORT, SHOPIFY_API_VERSION, SHOPIFY_SCOPES, appUrl, hostName, hostScheme, DEFAULT_SHOP } from './config.js';
 import { makeGqlClient } from './graphql-client.js';
 import { errorLog, reportError, ERROR_LOG_MAX } from './error-logger.js';
 import {
@@ -28,6 +28,7 @@ import {
   clearShippingProgressMetafield,
   getShippingProgressMetafield,
   syncShippingProgressMetafield,
+  shippingProgressErrorNeedsReauth,
 } from './lib/shipping-progress-config.js';
 
 // Route modules
@@ -188,7 +189,7 @@ app.get('/api/diagnostics', requireAdmin, (req, res) => {
       hostScheme,
       callbackUrl: `${hostScheme}://${hostName}/api/auth/callback`,
       apiKey: process.env.SHOPIFY_API_KEY?.substring(0, 12) + '...',
-      scopes: 'write_discounts,read_discounts',
+      scopes: SHOPIFY_SCOPES,
     },
     sessions: {
       installedShops,
@@ -511,12 +512,15 @@ app.post('/api/checkout-shipping-progress', requireAdmin, async (req, res) => {
     });
 
     if (!result.ok) {
-      const isAccessDenied = /access.denied|insufficient.scope|write_metafields/i.test(result.warning || '');
+      const needsReauth = shippingProgressErrorNeedsReauth(result.warning || '');
       console.error('[checkout-progress] save failed:', result.warning, '| shop:', shop);
-      if (isAccessDenied) {
-        return res.status(403).json({ error: result.warning, needsReauth: true });
+      if (needsReauth) {
+        return res.status(403).json({
+          error: result.warning || 'App needs permission to write metafields.',
+          needsReauth: true,
+        });
       }
-      return res.status(400).json({ error: result.warning });
+      return res.status(400).json({ error: result.warning || 'Save failed.' });
     }
     res.json({ success: true, config: mapCheckoutProgressConfigForApi(result.config) });
   } catch (error) {

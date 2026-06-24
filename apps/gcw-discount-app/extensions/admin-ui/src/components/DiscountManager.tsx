@@ -74,7 +74,11 @@ export function DiscountManager() {
   const [standaloneBar, setStandaloneBar] = useState<StandaloneBarConfig>(DEFAULT_STANDALONE);
   const [standaloneLoading, setStandaloneLoading] = useState(true);
   const [standaloneSaving, setStandaloneSaving] = useState(false);
-  const [standaloneStatus, setStandaloneStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [standaloneStatus, setStandaloneStatus] = useState<{
+    ok: boolean;
+    msg: string;
+    reauthUrl?: string;
+  } | null>(null);
 
   const buildPreviewDiscount = (discount: Discount): PreviewDiscount => {
     const valueLabel = discount.type === 'percentage'
@@ -146,7 +150,19 @@ export function DiscountManager() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Save failed');
+      if (!res.ok) {
+        if (data?.needsReauth) {
+          const shop = new URLSearchParams(window.location.search).get('shop') || '';
+          const reauthUrl = shop ? `/api/auth?shop=${encodeURIComponent(shop)}` : '/api/auth';
+          setStandaloneStatus({
+            ok: false,
+            msg: data?.error || 'App needs permission to write metafields.',
+            reauthUrl,
+          });
+          return;
+        }
+        throw new Error(data?.error || 'Save failed');
+      }
       setStandaloneStatus({ ok: true, msg: 'Saved!' });
     } catch (err) {
       setStandaloneStatus({ ok: false, msg: err instanceof Error ? err.message : 'Save failed' });
@@ -473,6 +489,14 @@ export function DiscountManager() {
               {standaloneStatus && (
                 <span style={{ fontSize: '13px', color: standaloneStatus.ok ? '#059669' : '#dc2626', fontWeight: 600 }}>
                   {standaloneStatus.msg}
+                  {standaloneStatus.reauthUrl && (
+                    <>
+                      {' '}
+                      <a href={standaloneStatus.reauthUrl} style={{ color: '#0066cc' }}>
+                        Re-authorize the app
+                      </a>
+                    </>
+                  )}
                 </span>
               )}
               {standaloneLoading && <span style={{ fontSize: '12px', color: '#9ca3af' }}>Loading current config…</span>}
@@ -1051,5 +1075,6 @@ function TagSelectorField({ label, placeholder, value, onChange }: TagSelectorFi
         Selected: {selectedTags.length > 0 ? selectedTags.join(', ') : 'None'}
       </div>
     </div>
+  );
   );
 }

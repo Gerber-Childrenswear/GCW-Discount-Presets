@@ -1,23 +1,19 @@
-# ============================================================
-# PRODUCTION ONLY — gerberchildrenswear.myshopify.com
-# Backend: gcw-discount-presets-v2.onrender.com
-# Client ID: 0b2fb6e18c009c93349bfcd6636be0cd
-#
-# Deploy:  npx shopify app deploy --config shopify.app.toml --force
-# NEVER:   shopify app config link --reset
-# NEVER:   deploy with any other --config on the production store
-# ============================================================
+# PRODUCTION — gerberchildrenswear.myshopify.com
+# Backend must be gcw-discount-presets-v2.onrender.com (NOT gcw-dev)
 
 client_id = "0b2fb6e18c009c93349bfcd6636be0cd"
 name = "GCW Discount Presets"
 application_url = "https://gcw-discount-presets-v2.onrender.com"
 embedded = true
 
+[build]
+automatically_update_urls_on_dev = false
+
 [webhooks]
 api_version = "2025-07"
 
   [[webhooks.subscriptions]]
-  topics = [ "orders/create", "orders/updated" ]
+  topics = [ "orders/updated", "orders/create" ]
   uri = "/api/webhooks/orders"
 
 [access_scopes]
@@ -25,4 +21,6 @@ api_version = "2025-07"
 scopes = "read_discounts,read_orders,read_products,write_discounts"
 
 [auth]
-redirect_urls = [ "https://gcw-discount-presets-v2.onrender.com/api/auth/callback" ]
+redirect_urls = [
+  "https://gcw-discount-presets-v2.onrender.com/api/auth/callback"
+]

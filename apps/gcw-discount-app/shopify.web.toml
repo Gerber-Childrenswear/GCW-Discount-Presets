@@ -1,0 +1,5 @@
+roles = ["backend"]
+
+[commands]
+build = "npm run build"
+dev = "npm run server"

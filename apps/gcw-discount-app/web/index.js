@@ -4760,6 +4760,8 @@ app.get('/', async (req, res) => {
           </div>
         </div>
 
+        <div style="font-size:11px;color:#6b7280;margin:0 0 10px 2px;">Backend: ${hostName}</div>
+
         <div class="tabs">
           <button class="tab active" data-tab="campaigns">Campaigns</button>
           ${permissions.canActivate ? '<button class="tab" data-tab="functions">Function Builder</button>' : ''}

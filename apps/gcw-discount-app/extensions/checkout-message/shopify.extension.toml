@@ -13,5 +13,5 @@ type = "ui_extension"
   module = "./src/index.jsx"
 
   [[extensions.metafields]]
-  namespace = "gcw"
+  namespace = "$app:gcw"
   key = "shipping_progress"

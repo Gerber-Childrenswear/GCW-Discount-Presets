@@ -10,7 +10,7 @@ import {
   useSubtotalAmount,
 } from '@shopify/ui-extensions-react/checkout';
 
-const METAFIELD_NAMESPACE = 'gcw';
+const METAFIELD_NAMESPACE = '$app:gcw';
 const METAFIELD_KEY = 'shipping_progress';
 const MAX_CONFIG_BYTES = 4096;
 const MAX_MESSAGE_LENGTH = 160;

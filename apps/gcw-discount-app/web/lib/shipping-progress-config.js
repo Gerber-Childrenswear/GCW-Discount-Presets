@@ -1,4 +1,4 @@
-const NAMESPACE = 'gcw';
+const NAMESPACE = '$app:gcw';
 const KEY = 'shipping_progress';
 const TYPE = 'json';
 const CHECKOUT_SCHEDULE_TIME_ZONE = 'America/New_York';

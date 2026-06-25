@@ -2,11 +2,47 @@ import express, { Router } from 'express';
 import crypto from 'crypto';
 import { appUrl, SHOPIFY_SCOPES } from '../config.js';
 import { shopSessions, persistSessions, setRuntimeAccessToken } from '../session-store.js';
-import { verifyHmac } from '../security.js';
+import { verifyHmac, redactForLogs } from '../security.js';
 import { reportError } from '../error-logger.js';
 import { verifyPassword, setAuthCookie, isAuthenticated } from '../rbac.js';
 
 const router = Router();
+
+async function persistAccessTokenToRender(shop, accessToken) {
+  const apiKey = process.env.RENDER_API_KEY;
+  const serviceId = process.env.RENDER_SERVICE_ID;
+  if (!apiKey || !serviceId || !accessToken) return false;
+
+  const prodShop = process.env.SHOPIFY_PROD_SHOP_DOMAIN;
+  const envVars = prodShop && shop === prodShop
+    ? [
+        { key: 'SHOPIFY_PROD_ACCESS_TOKEN', value: accessToken },
+        { key: 'SHOPIFY_PROD_SHOP_DOMAIN', value: shop },
+      ]
+    : [{ key: 'SHOPIFY_ACCESS_TOKEN', value: accessToken }];
+
+  try {
+    const response = await fetch(`https://api.render.com/v1/services/${serviceId}/env-vars`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(envVars),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('[OAuth] Render env sync failed:', response.status, redactForLogs(text).slice(0, 200));
+      return false;
+    }
+    console.log(`[OAuth] Access token synced to Render for ${shop} (value not logged)`);
+    return true;
+  } catch (error) {
+    console.error('[OAuth] Render env sync error:', error.message);
+    return false;
+  }
+}
 
 // Step 1: Begin OAuth
 router.get('/api/auth', (req, res) => {
@@ -75,7 +111,7 @@ router.get('/api/auth/callback', async (req, res) => {
     const tokenData = await tokenResponse.json();
 
     if (!tokenResponse.ok || !tokenData.access_token) {
-      console.error('[OAuth] Token exchange failed:', tokenData);
+      console.error('[OAuth] Token exchange failed:', redactForLogs(tokenData));
       return res.status(500).send('Failed to obtain access token from Shopify');
     }
 
@@ -88,10 +124,12 @@ router.get('/api/auth/callback', async (req, res) => {
     persistSessions();
 
     console.log(`[OAuth] Access token obtained for ${shop} (scope: ${tokenData.scope})`);
-    console.log(`[OAuth] ^^^ Save to Render env vars to persist across restarts:`);
-    console.log(`[OAuth]     For dev store:  SHOPIFY_ACCESS_TOKEN=${tokenData.access_token}`);
-    console.log(`[OAuth]     For prod store: SHOPIFY_PROD_ACCESS_TOKEN=${tokenData.access_token}`);
-    console.log(`[OAuth]                     SHOPIFY_PROD_SHOP_DOMAIN=${shop}`);
+    const syncedToRender = await persistAccessTokenToRender(shop, tokenData.access_token);
+    if (!syncedToRender) {
+      console.log(
+        `[OAuth] Token stored in server session only. Set SHOPIFY_PROD_ACCESS_TOKEN in Render dashboard to persist across restarts (never paste tokens into logs or chat).`,
+      );
+    }
 
     setRuntimeAccessToken(tokenData.access_token);
 

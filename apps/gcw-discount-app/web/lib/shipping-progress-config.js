@@ -1,7 +1,25 @@
 const NAMESPACE = '$app:gcw';
+const LEGACY_NAMESPACE = 'gcw';
 const KEY = 'shipping_progress';
 const TYPE = 'json';
 const CHECKOUT_SCHEDULE_TIME_ZONE = 'America/New_York';
+
+export const STOCKUP35_CHECKOUT_PROGRESS = Object.freeze({
+  enabled: true,
+  threshold: 35,
+  comparison: 'gte',
+  source: 'manual',
+  promoCode: 'STOCKUP35',
+  showProgressBar: true,
+  showCodeInstruction: true,
+  startsAt: null,
+  endsAt: null,
+  remainingMessage: 'Spend {{amount}} more to reach free shipping!',
+  successMessage: 'You are eligible for free shipping, use code STOCKUP35 in checkout.',
+  codePromptMessage: 'Use code {{code}} at checkout',
+  codeAppliedMessage: 'Code {{code}} is applied',
+  discountId: 'manual-checkout-shipping-progress',
+});
 
 function finiteNumber(value, fallback) {
   const parsed = Number(value);
@@ -152,9 +170,17 @@ function normalizePromoCode(value) {
 }
 
 export function shippingProgressErrorNeedsReauth(warning = '') {
-  return /access.denied|insufficient.scope|write_metafields|invalid api key|access token/i.test(
-    warning,
-  );
+  return /access.denied|insufficient.scope|write_metafields/i.test(warning);
+}
+
+export function shippingProgressAuthErrorMessage(warning = '') {
+  if (/invalid api key|access token/i.test(warning)) {
+    return 'Shopify rejected the stored access token. Open the app from Shopify admin to refresh it, or update SHOPIFY_PROD_ACCESS_TOKEN on Render after re-installing the app.';
+  }
+  if (shippingProgressErrorNeedsReauth(warning)) {
+    return 'App needs permission to write metafields. Re-authorize the app then try again.';
+  }
+  return warning || 'Save failed.';
 }
 
 export function buildShippingProgressConfig(discount = {}) {
@@ -211,14 +237,18 @@ export async function getShippingProgressMetafield(callShopify) {
     const response = await callShopify(`query CheckoutShippingProgress {
       shop {
         id
-        metafield(namespace: "${NAMESPACE}", key: "${KEY}") {
+        appMetafield: metafield(namespace: "${NAMESPACE}", key: "${KEY}") {
+          value
+        }
+        legacyMetafield: metafield(namespace: "${LEGACY_NAMESPACE}", key: "${KEY}") {
           value
         }
       }
     }`);
 
     const shopId = response?.result?.data?.shop?.id;
-    const rawValue = response?.result?.data?.shop?.metafield?.value;
+    const appRaw = response?.result?.data?.shop?.appMetafield?.value;
+    const legacyRaw = response?.result?.data?.shop?.legacyMetafield?.value;
     if (!response?.ok || !shopId) {
       return {
         ok: false,
@@ -228,12 +258,29 @@ export async function getShippingProgressMetafield(callShopify) {
       };
     }
 
-    let config = null;
-    if (rawValue) {
-      try { config = JSON.parse(rawValue); } catch { config = null; }
-    }
+    const parseConfig = (rawValue) => {
+      if (!rawValue) return null;
+      try {
+        const parsed = JSON.parse(rawValue);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed
+          : null;
+      } catch {
+        return null;
+      }
+    };
 
-    return { ok: true, shopId, config };
+    const appConfig = parseConfig(appRaw);
+    const legacyConfig = parseConfig(legacyRaw);
+
+    return {
+      ok: true,
+      shopId,
+      config: appConfig || legacyConfig,
+      appConfig,
+      legacyConfig,
+      usingLegacy: !appConfig && !!legacyConfig,
+    };
   } catch (error) {
     return {
       ok: false,
@@ -243,6 +290,39 @@ export async function getShippingProgressMetafield(callShopify) {
           : 'Unknown checkout progress load error.',
     };
   }
+}
+
+async function clearLegacyShippingProgressMetafield(callShopify, shopId) {
+  const response = await callShopify(
+    `mutation ClearLegacyShippingProgress($metafields: [MetafieldIdentifierInput!]!) {
+      metafieldsDelete(identifiers: $metafields) {
+        deletedMetafields { key namespace }
+        userErrors { field message }
+      }
+    }`,
+    {
+      metafields: [
+        {
+          ownerId: shopId,
+          namespace: LEGACY_NAMESPACE,
+          key: KEY,
+        },
+      ],
+    },
+  );
+
+  const userErrors = response?.result?.data?.metafieldsDelete?.userErrors || [];
+  if (!response?.ok || userErrors.length > 0) {
+    return {
+      ok: false,
+      warning:
+        userErrors[0]?.message ||
+        response?.error ||
+        'Legacy checkout progress metafield cleanup failed.',
+    };
+  }
+
+  return { ok: true };
 }
 
 async function setShippingProgressMetafield(callShopify, shopId, configObject) {
@@ -278,7 +358,56 @@ async function setShippingProgressMetafield(callShopify, shopId, configObject) {
     };
   }
 
+  await clearLegacyShippingProgressMetafield(callShopify, shopId);
+
   return { ok: true, config: configObject };
+}
+
+export async function repairStockup35ShippingProgressMetafield(callShopify) {
+  try {
+    const current = await getShippingProgressMetafield(callShopify);
+    if (!current.ok) return current;
+
+    const config = buildShippingProgressConfig({
+      id: STOCKUP35_CHECKOUT_PROGRESS.discountId,
+      source: 'manual',
+      value: STOCKUP35_CHECKOUT_PROGRESS.threshold,
+      comparison: STOCKUP35_CHECKOUT_PROGRESS.comparison,
+      promo_code: STOCKUP35_CHECKOUT_PROGRESS.promoCode,
+      show_checkout_progress: true,
+      checkout_progress_show_meter: true,
+      checkout_progress_show_code_instruction: true,
+      checkout_progress_remaining_message: STOCKUP35_CHECKOUT_PROGRESS.remainingMessage,
+      checkout_progress_success_message: STOCKUP35_CHECKOUT_PROGRESS.successMessage,
+      checkout_progress_code_prompt_message: STOCKUP35_CHECKOUT_PROGRESS.codePromptMessage,
+      checkout_progress_code_applied_message: STOCKUP35_CHECKOUT_PROGRESS.codeAppliedMessage,
+    });
+
+    const result = await setShippingProgressMetafield(
+      callShopify,
+      current.shopId,
+      config,
+    );
+    if (!result.ok) return result;
+
+    return {
+      ok: true,
+      config,
+      repairedFrom: {
+        appThreshold: current.appConfig?.threshold ?? null,
+        legacyThreshold: current.legacyConfig?.threshold ?? null,
+        usingLegacy: current.usingLegacy === true,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      warning:
+        error instanceof Error
+          ? error.message
+          : 'Unknown checkout progress repair error.',
+    };
+  }
 }
 
 export async function syncShippingProgressMetafield(callShopify, discount) {

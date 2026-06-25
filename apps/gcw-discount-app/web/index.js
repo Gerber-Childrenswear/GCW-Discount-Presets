@@ -28,7 +28,9 @@ import {
   clearShippingProgressMetafield,
   getShippingProgressMetafield,
   syncShippingProgressMetafield,
+  repairStockup35ShippingProgressMetafield,
   shippingProgressErrorNeedsReauth,
+  shippingProgressAuthErrorMessage,
 } from './lib/shipping-progress-config.js';
 
 // Route modules
@@ -339,7 +341,7 @@ function buildShippingProgressPayload({ discountId, config, startsAt, endsAt, en
     id: discountId,
     source: 'function',
     value: threshold,
-    comparison: 'gt',
+    comparison: 'gte',
     show_checkout_progress: enabled === true && config?.show_checkout_progress === true,
     checkout_progress_starts_at: startsAt || null,
     checkout_progress_ends_at: endsAt || null,
@@ -433,11 +435,46 @@ app.get('/api/checkout-shipping-progress', requireViewer, async (req, res) => {
       console.warn('[checkout-progress] getShippingProgressMetafield failed:', current.warning);
       return res.json({ success: true, config: mapCheckoutProgressConfigForApi(null) });
     }
+    if (current.usingLegacy) {
+      console.warn('[checkout-progress] Serving legacy merchant metafield; run repair to migrate to app namespace');
+    }
 
-    res.json({ success: true, config: mapCheckoutProgressConfigForApi(current.config) });
+    res.json({
+      success: true,
+      config: mapCheckoutProgressConfigForApi(current.config),
+      meta: {
+        usingLegacy: current.usingLegacy === true,
+        appThreshold: current.appConfig?.threshold ?? null,
+        legacyThreshold: current.legacyConfig?.threshold ?? null,
+      },
+    });
   } catch (error) {
     reportError(error, { area: 'checkout_shipping_progress_get' });
     res.json({ success: true, config: mapCheckoutProgressConfigForApi(null) });
+  }
+});
+
+app.post('/api/checkout-shipping-progress/repair', requireAdmin, async (req, res) => {
+  try {
+    const { shop, accessToken } = await getOrExchangeToken(req);
+    if (!shop || !accessToken) return res.status(401).json({ error: 'Missing auth' });
+
+    const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+    const callGql = makeGqlClient(graphqlUrl, accessToken);
+    const result = await repairStockup35ShippingProgressMetafield(callGql);
+    if (!result.ok) {
+      return res.status(400).json({ error: result.warning || 'Repair failed.' });
+    }
+
+    console.log('[checkout-progress] repaired STOCKUP35 config for', shop, result.repairedFrom);
+    res.json({
+      success: true,
+      config: mapCheckoutProgressConfigForApi(result.config),
+      repairedFrom: result.repairedFrom,
+    });
+  } catch (error) {
+    reportError(error, { area: 'checkout_shipping_progress_repair' });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -512,15 +549,18 @@ app.post('/api/checkout-shipping-progress', requireAdmin, async (req, res) => {
     });
 
     if (!result.ok) {
-      const needsReauth = shippingProgressErrorNeedsReauth(result.warning || '');
-      console.error('[checkout-progress] save failed:', result.warning, '| shop:', shop);
-      if (needsReauth) {
-        return res.status(403).json({
-          error: result.warning || 'App needs permission to write metafields.',
-          needsReauth: true,
+      const warning = result.warning || '';
+      const needsReauth = shippingProgressErrorNeedsReauth(warning);
+      const invalidToken = /invalid api key|access token/i.test(warning);
+      console.error('[checkout-progress] save failed:', warning, '| shop:', shop);
+      if (needsReauth || invalidToken) {
+        return res.status(invalidToken ? 401 : 403).json({
+          error: shippingProgressAuthErrorMessage(warning),
+          needsReauth: needsReauth,
+          needsTokenRefresh: invalidToken,
         });
       }
-      return res.status(400).json({ error: result.warning || 'Save failed.' });
+      return res.status(400).json({ error: warning || 'Save failed.' });
     }
     res.json({ success: true, config: mapCheckoutProgressConfigForApi(result.config) });
   } catch (error) {
@@ -1977,12 +2017,12 @@ app.delete('/api/shipping-function/:discountId', requireAdmin, async (req, res) 
     const data = result.data?.discountAutomaticDelete;
     if (data?.userErrors?.length) return res.status(400).json({ error: data.userErrors[0].message });
 
-    unregisterDiscount(discountId);
     const callGql = makeGqlClient(graphqlUrl, accessToken);
     logShippingProgressWarning(
       await clearShippingProgressMetafield(callGql, { onlySource: 'function', source: 'function' }),
       `delete ${discountId}`,
     );
+    unregisterDiscount(discountId);
     console.log(`[ShippingFunction] Deleted discount: ${discountId}`);
     res.json({ success: true, deletedId: data?.deletedAutomaticDiscountId });
   } catch (error) {
@@ -4760,8 +4800,6 @@ app.get('/', async (req, res) => {
           </div>
         </div>
 
-        <div style="font-size:11px;color:#6b7280;margin:0 0 10px 2px;">Backend: ${hostName}</div>
-
         <div class="tabs">
           <button class="tab active" data-tab="campaigns">Campaigns</button>
           ${permissions.canActivate ? '<button class="tab" data-tab="functions">Function Builder</button>' : ''}
@@ -5731,7 +5769,7 @@ app.get('/', async (req, res) => {
               id: d.id,
               name: d.title || 'Untitled Shipping Rule',
               type: 'free_shipping',
-              value: (d.config && d.config.threshold) || '35',
+              value: (d.config && d.config.threshold) || '50',
               paused: d.status !== 'ACTIVE' && d.status !== 'SCHEDULED',
               activated: true,
               start_date: d.startsAt || null,
@@ -6432,7 +6470,7 @@ app.get('/', async (req, res) => {
             const btn = document.getElementById('fe_deploy_btn');
             if (btn) { btn.textContent = 'Update Discount Config'; btn.dataset.editMode = 'true'; }
           } else if (source === 'shipping-function') {
-            const th = document.getElementById('sf_threshold'); if (th) { th.value = cfg.threshold || 35; updateThresholdPreview(); }
+            const th = document.getElementById('sf_threshold'); if (th) { th.value = cfg.threshold || 50; updateThresholdPreview(); }
             const sm = document.getElementById('sf_message'); if (sm) sm.value = cfg.message || '';
             const sp = document.getElementById('sf_show_checkout_progress'); if (sp) sp.checked = cfg.show_checkout_progress !== false;
             const btn = document.getElementById('sf_deploy_btn');
@@ -7160,7 +7198,7 @@ app.get('/', async (req, res) => {
               const alsoShipping = document.getElementById('fe_also_shipping');
               if (alsoShipping && alsoShipping.checked) {
                 try {
-                  const shipThreshold = Number(document.getElementById('fe_ship_threshold')?.value) || 35;
+                  const shipThreshold = Number(document.getElementById('fe_ship_threshold')?.value) || 50;
                   const shipBody = {
                     title: title + ' - Free Shipping',
                     threshold: shipThreshold,
@@ -7487,7 +7525,7 @@ app.get('/', async (req, res) => {
 
         // ===== SHIPPING FUNCTION ENGINE JS =====
         function updateThresholdPreview() {
-          const val = Number(document.getElementById('sf_threshold')?.value) || 35;
+          const val = Number(document.getElementById('sf_threshold')?.value) || 50;
           const clamped = Math.min(100, Math.max(10, val));
           const pct = ((clamped - 10) / 90) * 100;
           const previewValue = document.getElementById('sf_preview_value');
@@ -7782,12 +7820,17 @@ app.get('/', async (req, res) => {
                 });
                 const data = await resp.json();
                 if (!resp.ok) {
-                  if (data.needsReauth) {
+                  if (data.needsReauth || data.needsTokenRefresh) {
                     if (status) {
                       const reauthShop = new URLSearchParams(window.location.search).get('shop') || '';
-                      status.innerHTML = '<span style="color:#c0392b;">App needs permission to write metafields. </span><a href="/api/auth?shop=' + encodeURIComponent(reauthShop) + '" style="color:#0066cc;text-decoration:underline;">Re-authorize the app</a> then try again.';
+                      const msg = data.error || 'Authorization failed.';
+                      if (data.needsReauth) {
+                        status.innerHTML = '<span style="color:#c0392b;">' + msg + ' </span><a href="/api/auth?shop=' + encodeURIComponent(reauthShop) + '" style="color:#0066cc;text-decoration:underline;">Re-authorize the app</a> then try again.';
+                      } else {
+                        status.innerHTML = '<span style="color:#c0392b;">' + msg + '</span>';
+                      }
                     }
-                    showToast('App needs re-authorization to save checkout bar settings.', 'error');
+                    showToast(data.error || 'Authorization failed.', 'error');
                     saveBtn.textContent = 'Save Checkout Bar';
                     return;
                   }
@@ -8344,7 +8387,7 @@ app.get('/', async (req, res) => {
               const _sfMsg = document.getElementById('sf_message'); if (_sfMsg) _sfMsg.value = '';
               const _sfStarts = document.getElementById('sf_starts_date'); if (_sfStarts) _sfStarts.value = '';
               const _sfEnds = document.getElementById('sf_ends_date'); if (_sfEnds) _sfEnds.value = '';
-              const _sfThreshold = document.getElementById('sf_threshold'); if (_sfThreshold) _sfThreshold.value = '35';
+              const _sfThreshold = document.getElementById('sf_threshold'); if (_sfThreshold) _sfThreshold.value = '50';
               const _sfProgress = document.getElementById('sf_show_checkout_progress'); if (_sfProgress) _sfProgress.checked = true;
               updateThresholdPreview();
               loadShippingDiscounts();
@@ -9083,7 +9126,47 @@ const server = app.listen(PORT, () => {
   - Callback URL: ${hostScheme}://${hostName}/api/auth/callback
   - Diagnostics: https://${hostName}/api/diagnostics
 `);
+  maybeRepairCheckoutProgressOnStartup().catch((error) => {
+    console.warn('[checkout-progress] startup repair skipped:', error.message);
+  });
 });
+
+async function maybeRepairCheckoutProgressOnStartup() {
+  if (process.env.SHOPIFY_REPAIR_CHECKOUT_PROGRESS === 'false') return;
+
+  const shop = process.env.SHOPIFY_PROD_SHOP_DOMAIN || DEFAULT_SHOP;
+  const accessToken = getAccessToken(shop);
+  if (!accessToken) return;
+
+  const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+  const callGql = makeGqlClient(graphqlUrl, accessToken);
+  const current = await getShippingProgressMetafield(callGql);
+  if (!current.ok) {
+    console.warn('[checkout-progress] startup repair could not read metafield:', current.warning);
+    return;
+  }
+
+  const activeThreshold = Number(current.config?.threshold);
+  const needsRepair =
+    current.usingLegacy === true
+    || !current.appConfig
+    || activeThreshold === 50
+    || activeThreshold === 60;
+
+  if (!needsRepair) return;
+
+  const result = await repairStockup35ShippingProgressMetafield(callGql);
+  if (!result.ok) {
+    console.warn('[checkout-progress] startup repair failed:', result.warning);
+    return;
+  }
+
+  console.log(
+    '[checkout-progress] startup repair wrote STOCKUP35 $35 config for',
+    shop,
+    result.repairedFrom,
+  );
+}
 
 // Graceful shutdown for Render / container environments
 for (const signal of ['SIGTERM', 'SIGINT']) {

@@ -5,6 +5,7 @@ import {
   Text,
   reactExtension,
   useAppMetafields,
+  useCartLines,
   useDiscountAllocations,
   useSubtotalAmount,
 } from '@shopify/ui-extensions-react/checkout';
@@ -161,8 +162,47 @@ function uniqueDiscountAllocations(allocations) {
   return unique.slice(0, 5);
 }
 
+function resolveSubtotalAmount(subtotal, cartLines) {
+  const hookAmount = Math.max(0, toFiniteNumber(subtotal?.amount, 0));
+  const lineAmount = (Array.isArray(cartLines) ? cartLines : []).reduce((sum, line) => {
+    const lineTotal = toFiniteNumber(line?.cost?.totalAmount?.amount, 0);
+    return sum + Math.max(0, lineTotal);
+  }, 0);
+
+  // Checkout editor previews can report $0 subtotal before cart lines hydrate.
+  return Math.max(hookAmount, lineAmount);
+}
+
+function pickMetafieldValue(metafields) {
+  const values = (Array.isArray(metafields) ? metafields : [])
+    .map((entry) => entry?.metafield?.value)
+    .filter((value) => typeof value === 'string' && value.length > 0);
+
+  if (values.length === 0) return undefined;
+
+  const scored = values
+    .map((value) => {
+      try {
+        const parsed = JSON.parse(value);
+        const syncedAt = Date.parse(parsed?.syncedAt || '');
+        const threshold = toFiniteNumber(parsed?.threshold, 0);
+        return {
+          value,
+          syncedAt: Number.isFinite(syncedAt) ? syncedAt : 0,
+          threshold,
+        };
+      } catch {
+        return { value, syncedAt: 0, threshold: 0 };
+      }
+    })
+    .sort((a, b) => b.syncedAt - a.syncedAt || b.threshold - a.threshold);
+
+  return scored[0]?.value;
+}
+
 function App() {
   const subtotal = useSubtotalAmount();
+  const cartLines = useCartLines();
   const allocations = useDiscountAllocations();
   const metafields = useAppMetafields({
     type: 'shop',
@@ -170,11 +210,11 @@ function App() {
     key: METAFIELD_KEY,
   });
 
-  const rawConfig = metafields?.[0]?.metafield?.value;
+  const rawConfig = pickMetafieldValue(metafields);
   const config = normalizeConfig(rawConfig);
   const shouldShowProgress = config.enabled && isWithinSchedule(config);
 
-  const subtotalAmount = Math.max(0, toFiniteNumber(subtotal?.amount, 0));
+  const subtotalAmount = resolveSubtotalAmount(subtotal, cartLines);
   const currencyCode = subtotal?.currencyCode || 'USD';
 
   const subtotalInCents = cents(subtotalAmount);

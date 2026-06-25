@@ -1,26 +1,30 @@
-# PRODUCTION — gerberchildrenswear.myshopify.com
-# Backend must be gcw-discount-presets-v2.onrender.com (NOT gcw-dev)
+# ============================================================
+# PRODUCTION CONFIG — gerberchildrenswear.myshopify.com
+# Backend: gcw-discount-presets-v2.onrender.com
+# Deploy: npx shopify app deploy --config shopify.app.toml --force
+# ============================================================
 
 client_id = "0b2fb6e18c009c93349bfcd6636be0cd"
 name = "GCW Discount Presets"
 application_url = "https://gcw-discount-presets-v2.onrender.com"
 embedded = true
 
-[build]
-automatically_update_urls_on_dev = false
-
 [webhooks]
 api_version = "2025-07"
 
   [[webhooks.subscriptions]]
-  topics = [ "orders/updated", "orders/create" ]
+  topics = [ "orders/create", "orders/updated" ]
   uri = "/api/webhooks/orders"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_discounts,read_orders,read_products,write_discounts"
+scopes = "read_discounts,read_orders,read_products,write_discounts,write_metafields,read_metafields"
 
 [auth]
-redirect_urls = [
-  "https://gcw-discount-presets-v2.onrender.com/api/auth/callback"
-]
+redirect_urls = [ "https://gcw-discount-presets-v2.onrender.com/api/auth/callback" ]
+
+[shop.metafields.app.gcw.shipping_progress]
+type = "json"
+name = "Checkout shipping progress"
+description = "GCW checkout free-shipping progress bar configuration"
+access.admin = "merchant_read_write"

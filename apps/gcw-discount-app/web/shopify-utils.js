@@ -3,6 +3,7 @@ import { DEFAULT_SHOP, SHOPIFY_API_VERSION, appUrl, hostName, hostScheme } from 
 import { shopSessions, persistSessions, getAccessToken, setRuntimeAccessToken } from './session-store.js';
 import { makeGqlClient } from './graphql-client.js';
 import { reportError } from './error-logger.js';
+import { redactForLogs } from './security.js';
 import { discountsStore, registerDiscount } from './discount-store.js';
 
 // Fetch with timeout — prevents hanging requests to Shopify
@@ -55,19 +56,23 @@ export async function getOrExchangeToken(req) {
   const shopRaw = req.query.shop || req.body?.shop || req.headers['x-shopify-shop'] || DEFAULT_SHOP;
   const shop = isValidShopDomain(shopRaw) ? shopRaw : null;
   if (!shop) return { shop: null, accessToken: null };
-  
-  let accessToken = getAccessToken(shop);
-  if (accessToken) return { shop, accessToken };
-  
-  const idToken = req.headers['x-shopify-id-token'] 
-    || (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null)
+
+  const idToken = req.headers['x-shopify-id-token']
+    || (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7)
+      : null)
     || req.query.id_token;
+
+  // Embedded admin sends a session id_token on every request. Prefer a fresh
+  // exchange over env-seeded tokens, which go stale after reinstall/revoke.
   if (idToken) {
-    console.log(`[getOrExchangeToken] No stored token for ${shop}, trying token exchange...`);
-    accessToken = await exchangeToken(shop, idToken);
-    if (accessToken) return { shop, accessToken };
+    const exchanged = await exchangeToken(shop, idToken);
+    if (exchanged) return { shop, accessToken: exchanged };
   }
-  
+
+  const accessToken = getAccessToken(shop);
+  if (accessToken) return { shop, accessToken };
+
   console.error(`[getOrExchangeToken] No token and no id_token available for ${shop}`);
   return { shop, accessToken: null };
 }
@@ -98,12 +103,12 @@ export async function exchangeToken(shop, idToken) {
     console.log(`[TokenExchange] Response status: ${response.status}, body length: ${text.length}`);
     let data;
     try { data = JSON.parse(text); } catch {
-      console.error(`[TokenExchange] Non-JSON response (${response.status}) for ${shop}:`, text.substring(0, 300));
+      console.error(`[TokenExchange] Non-JSON response (${response.status}) for ${shop}:`, redactForLogs(text).substring(0, 300));
       return null;
     }
 
     if (!response.ok || !data.access_token) {
-      console.error(`[TokenExchange] Failed for ${shop}:`, data);
+      console.error(`[TokenExchange] Failed for ${shop}:`, redactForLogs(data));
       return null;
     }
 

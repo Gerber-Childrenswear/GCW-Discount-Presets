@@ -334,7 +334,7 @@ async function assertAppManagedDiscountForDelete(shop, accessToken, discountId, 
 }
 
 function buildShippingProgressPayload({ discountId, config, startsAt, endsAt, enabled }) {
-  const threshold = Number(config?.threshold) || 50;
+  const threshold = Number(config?.threshold) || 35;
   return {
     id: discountId,
     source: 'function',
@@ -5694,10 +5694,18 @@ app.get('/', async (req, res) => {
 
         // Load and render deployed function discounts on the Campaigns tab
         // Uses the unified /api/discounts/list-all endpoint (single Shopify query)
-        async function loadDiscounts() {
+        async function loadDiscounts(_retryCount) {
+          const retryCount = _retryCount || 0;
+          const activeContainer = document.getElementById('discountsList');
+          if (retryCount === 0 && activeContainer && activeContainer.innerHTML === '') {
+            activeContainer.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);">Loading campaigns…</div>';
+          }
           try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 20000);
             const headers = await getApiHeaders();
-            const resp = await fetch(withShopParam('/api/discounts/list-all'), { headers });
+            const resp = await fetch(withShopParam('/api/discounts/list-all'), { headers, signal: controller.signal });
+            clearTimeout(timeout);
             const data = await resp.json();
             if (!data.success) throw new Error(data.error || 'Failed to load discounts');
 
@@ -5721,7 +5729,7 @@ app.get('/', async (req, res) => {
               id: d.id,
               name: d.title || 'Untitled Shipping Rule',
               type: 'free_shipping',
-              value: (d.config && d.config.threshold) || '50',
+              value: (d.config && d.config.threshold) || '35',
               paused: d.status !== 'ACTIVE' && d.status !== 'SCHEDULED',
               activated: true,
               start_date: d.startsAt || null,
@@ -5785,8 +5793,19 @@ app.get('/', async (req, res) => {
             updateDashboardSummary();
           } catch (error) {
             reportClientError(error, { area: 'discounts_list' });
-            renderDiscounts([]);
-            updateActiveCount([]);
+            if (retryCount < 3) {
+              const delay = (retryCount + 1) * 4000;
+              if (activeContainer) {
+                activeContainer.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);">Retrying… (' + (retryCount + 1) + '/3)</div>';
+              }
+              setTimeout(() => loadDiscounts(retryCount + 1), delay);
+            } else {
+              if (activeContainer) {
+                activeContainer.innerHTML = '<div style="text-align:center;padding:32px;color:#c0392b;">Failed to load campaigns. <a href="#" onclick="loadDiscounts();return false;">Retry</a></div>';
+              }
+              renderDiscounts([]);
+              updateActiveCount([]);
+            }
           }
         }
         
@@ -6411,7 +6430,7 @@ app.get('/', async (req, res) => {
             const btn = document.getElementById('fe_deploy_btn');
             if (btn) { btn.textContent = 'Update Discount Config'; btn.dataset.editMode = 'true'; }
           } else if (source === 'shipping-function') {
-            const th = document.getElementById('sf_threshold'); if (th) { th.value = cfg.threshold || 50; updateThresholdPreview(); }
+            const th = document.getElementById('sf_threshold'); if (th) { th.value = cfg.threshold || 35; updateThresholdPreview(); }
             const sm = document.getElementById('sf_message'); if (sm) sm.value = cfg.message || '';
             const sp = document.getElementById('sf_show_checkout_progress'); if (sp) sp.checked = cfg.show_checkout_progress !== false;
             const btn = document.getElementById('sf_deploy_btn');
@@ -7139,7 +7158,7 @@ app.get('/', async (req, res) => {
               const alsoShipping = document.getElementById('fe_also_shipping');
               if (alsoShipping && alsoShipping.checked) {
                 try {
-                  const shipThreshold = Number(document.getElementById('fe_ship_threshold')?.value) || 50;
+                  const shipThreshold = Number(document.getElementById('fe_ship_threshold')?.value) || 35;
                   const shipBody = {
                     title: title + ' - Free Shipping',
                     threshold: shipThreshold,
@@ -7466,7 +7485,7 @@ app.get('/', async (req, res) => {
 
         // ===== SHIPPING FUNCTION ENGINE JS =====
         function updateThresholdPreview() {
-          const val = Number(document.getElementById('sf_threshold')?.value) || 50;
+          const val = Number(document.getElementById('sf_threshold')?.value) || 35;
           const clamped = Math.min(100, Math.max(10, val));
           const pct = ((clamped - 10) / 90) * 100;
           const previewValue = document.getElementById('sf_preview_value');
@@ -8323,7 +8342,7 @@ app.get('/', async (req, res) => {
               const _sfMsg = document.getElementById('sf_message'); if (_sfMsg) _sfMsg.value = '';
               const _sfStarts = document.getElementById('sf_starts_date'); if (_sfStarts) _sfStarts.value = '';
               const _sfEnds = document.getElementById('sf_ends_date'); if (_sfEnds) _sfEnds.value = '';
-              const _sfThreshold = document.getElementById('sf_threshold'); if (_sfThreshold) _sfThreshold.value = '50';
+              const _sfThreshold = document.getElementById('sf_threshold'); if (_sfThreshold) _sfThreshold.value = '35';
               const _sfProgress = document.getElementById('sf_show_checkout_progress'); if (_sfProgress) _sfProgress.checked = true;
               updateThresholdPreview();
               loadShippingDiscounts();

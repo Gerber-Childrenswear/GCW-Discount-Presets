@@ -1,7 +1,11 @@
 # ============================================================
-# PRODUCTION CONFIG — gerberchildrenswear.myshopify.com
+# PRODUCTION ONLY — gerberchildrenswear.myshopify.com
 # Backend: gcw-discount-presets-v2.onrender.com
-# Deploy: npx shopify app deploy --config shopify.app.toml --force
+# Client ID: 0b2fb6e18c009c93349bfcd6636be0cd
+#
+# Deploy:  npx shopify app deploy --config shopify.app.toml --force
+# NEVER:   shopify app config link --reset
+# NEVER:   deploy with any other --config on the production store
 # ============================================================
 
 client_id = "0b2fb6e18c009c93349bfcd6636be0cd"

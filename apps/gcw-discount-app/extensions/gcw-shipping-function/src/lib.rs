@@ -2,7 +2,7 @@ use serde::Deserialize;
 use shopify_function::prelude::*;
 use shopify_function::Result;
 
-const DEFAULT_THRESHOLD: f64 = 50.0;
+const DEFAULT_THRESHOLD: f64 = 35.0;
 const DEFAULT_MESSAGE: &str = "Free Shipping";
 
 #[typegen("./schema.graphql")]

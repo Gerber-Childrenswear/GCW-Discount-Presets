@@ -20,7 +20,7 @@ const MAX_MESSAGE_LENGTH = 160;
 // Checkout UI extensions cannot read storefront CSS variables or render arbitrary CSS.
 // This component uses Shopify-safe primitives/tokens to mirror the Hyper layout and tone without risking checkout failures.
 const DEFAULT_CONFIG = Object.freeze({
-  enabled: true,
+  enabled: false,
   threshold: 35,
   comparison: 'gte',
   startsAt: null,

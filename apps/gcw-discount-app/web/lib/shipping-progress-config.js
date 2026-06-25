@@ -1,4 +1,4 @@
-const NAMESPACE = '$app:gcw';
+const NAMESPACE = 'gcw';
 const KEY = 'shipping_progress';
 const TYPE = 'json';
 const CHECKOUT_SCHEDULE_TIME_ZONE = 'America/New_York';
@@ -152,7 +152,7 @@ function normalizePromoCode(value) {
 }
 
 export function shippingProgressErrorNeedsReauth(warning = '') {
-  return /access.denied|insufficient.scope|invalid api key|access token/i.test(
+  return /access.denied|insufficient.scope|write_metafields|invalid api key|access token/i.test(
     warning,
   );
 }
@@ -283,16 +283,6 @@ async function setShippingProgressMetafield(callShopify, shopId, configObject) {
 
 export async function syncShippingProgressMetafield(callShopify, discount) {
   try {
-    const incomingSource =
-      typeof discount.source === 'string' ? discount.source : 'function';
-
-    // The checkout progress bar is owned exclusively by the standalone Checkout
-    // Bar UI (source: 'manual'). Discount/function deploys must never write the
-    // shop metafield or they clobber the manual $35 config with shipping defaults.
-    if (incomingSource !== 'manual') {
-      return { ok: true, skipped: true, reason: 'standalone-checkout-bar-only' };
-    }
-
     const current = await getShippingProgressMetafield(callShopify);
     if (!current.ok) return current;
 

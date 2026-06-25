@@ -9,7 +9,7 @@ export const PORT = process.env.PORT || 8081;
 export const SHOPIFY_API_VERSION = '2025-07';
 export const SHOPIFY_SCOPES =
   process.env.SHOPIFY_APP_SCOPES ||
-  'read_discounts,write_discounts,read_orders,read_products';
+  'read_discounts,write_discounts,read_orders,read_products,read_metafields,write_metafields';
 
 export const appUrl = process.env.SHOPIFY_APP_URL || `http://localhost:${PORT}`;
 export const hostName = appUrl.replace(/^https?:\/\//, '');

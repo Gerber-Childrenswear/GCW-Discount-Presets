@@ -24,7 +24,7 @@ query Input {
             tagChecks: hasTags(tags: [
               "discount", "sale", "clearance", "markdown", "promo",
               "bundle", "bogo", "bxgy", "gift",
-              "holiday", "flash-sale", "doorbuster", "flag:doorbuster", "outlet", "overstock",
+              "holiday", "flash-sale", "doorbuster", "flag:doorbuster", "flag:price drop", "outlet", "overstock",
               "member", "vip", "loyalty",
               "baby", "toddler", "kids", "infant", "newborn",
               "boys", "girls",

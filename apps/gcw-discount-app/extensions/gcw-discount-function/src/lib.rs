@@ -600,10 +600,7 @@ mod tests {
                     "Onesie",
                     false,
                     "Gerber",
-                    make_tag_checks(&[
-                        ("flag:doorbuster", true),
-                        ("flag:price drop", false),
-                    ]),
+                    make_tag_checks(&[("flag:doorbuster", true), ("flag:price drop", false)]),
                 ),
                 make_line(
                     "price-drop",
@@ -612,10 +609,7 @@ mod tests {
                     "Onesie",
                     false,
                     "Gerber",
-                    make_tag_checks(&[
-                        ("flag:doorbuster", false),
-                        ("flag:price drop", true),
-                    ]),
+                    make_tag_checks(&[("flag:doorbuster", false), ("flag:price drop", true)]),
                 ),
                 make_line(
                     "eligible",
@@ -624,10 +618,7 @@ mod tests {
                     "Onesie",
                     false,
                     "Gerber",
-                    make_tag_checks(&[
-                        ("flag:doorbuster", false),
-                        ("flag:price drop", false),
-                    ]),
+                    make_tag_checks(&[("flag:doorbuster", false), ("flag:price drop", false)]),
                 ),
             ],
         );
@@ -636,7 +627,10 @@ mod tests {
         assert_eq!(result.operations.len(), 1);
         if let schema::CartOperation::ProductDiscountsAdd(op) = &result.operations[0] {
             assert_eq!(op.candidates.len(), 1);
-            assert_eq!(op.candidates[0].message.as_deref(), Some("Extra 20% Off Applied!"));
+            assert_eq!(
+                op.candidates[0].message.as_deref(),
+                Some("Extra 20% Off Applied!")
+            );
             assert_eq!(op.candidates[0].targets.len(), 1);
             if let schema::ProductDiscountCandidateTarget::CartLine(target) =
                 &op.candidates[0].targets[0]
@@ -897,12 +891,12 @@ mod tests {
                 }
             }
         });
-        let input = make_input(
-            Some(r#"{"percentage":25}"#),
-            vec![line_hard_excluded],
-        );
+        let input = make_input(Some(r#"{"percentage":25}"#), vec![line_hard_excluded]);
         let result = run_function_with_input(run, &input)?;
-        assert!(result.operations.is_empty(), "hard-excluded product should not receive a discount");
+        assert!(
+            result.operations.is_empty(),
+            "hard-excluded product should not receive a discount"
+        );
         Ok(())
     }
 }

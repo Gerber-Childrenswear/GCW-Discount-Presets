@@ -632,13 +632,9 @@ mod tests {
                 Some("Extra 20% Off Applied!")
             );
             assert_eq!(op.candidates[0].targets.len(), 1);
-            if let schema::ProductDiscountCandidateTarget::CartLine(target) =
-                &op.candidates[0].targets[0]
-            {
-                assert_eq!(target.id, "eligible");
-            } else {
-                panic!("Expected eligible cart-line target");
-            }
+            let schema::ProductDiscountCandidateTarget::CartLine(target) =
+                &op.candidates[0].targets[0];
+            assert_eq!(target.id, "eligible");
             if let schema::ProductDiscountCandidateValue::Percentage(value) =
                 &op.candidates[0].value
             {

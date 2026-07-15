@@ -1,14 +1,14 @@
 {
   "discount": {
     "metafield": {
-      "value": "{\"percentage\":25,\"message\":\"Extra 25% Off Applied!\",\"exclude_gift_cards\":true,\"included_tags\":[\"discount\",\"sale\"],\"exclude_tags\":[],\"exclude_product_types\":[],\"exclude_vendors\":[],\"exclude_product_ids\":[]}"
+      "value": "{\"percentage\":20,\"message\":\"Extra 20% Off Applied!\",\"exclude_gift_cards\":true,\"included_tags\":[],\"exclude_tags\":[\"flag:doorbuster\",\"flag:price drop\"],\"exclude_product_types\":[],\"exclude_vendors\":[],\"exclude_product_ids\":[]}"
     }
   },
   "cart": {
     "lines": [
       {
-        "id": "gid://shopify/CartLine/1",
-        "quantity": 2,
+        "id": "gid://shopify/CartLine/doorbuster",
+        "quantity": 1,
         "merchandise": {
           "__typename": "ProductVariant",
           "id": "gid://shopify/ProductVariant/111",
@@ -19,115 +19,50 @@
             "vendor": "Gerber",
             "excludeCheck": false,
             "tagChecks": [
-              { "hasTag": true,  "tag": "discount" },
-              { "hasTag": false, "tag": "sale" },
-              { "hasTag": false, "tag": "clearance" },
-              { "hasTag": false, "tag": "markdown" },
-              { "hasTag": false, "tag": "promo" },
-              { "hasTag": false, "tag": "bundle" },
-              { "hasTag": false, "tag": "bogo" },
-              { "hasTag": false, "tag": "bxgy" },
-              { "hasTag": false, "tag": "gift" },
-              { "hasTag": false, "tag": "holiday" },
-              { "hasTag": false, "tag": "flash-sale" },
-              { "hasTag": false, "tag": "doorbuster" },
-              { "hasTag": false, "tag": "flag:doorbuster" },
-              { "hasTag": false, "tag": "outlet" },
-              { "hasTag": false, "tag": "overstock" },
-              { "hasTag": false, "tag": "member" },
-              { "hasTag": false, "tag": "vip" },
-              { "hasTag": false, "tag": "loyalty" },
-              { "hasTag": false, "tag": "baby" },
-              { "hasTag": false, "tag": "toddler" },
-              { "hasTag": false, "tag": "kids" },
-              { "hasTag": false, "tag": "infant" },
-              { "hasTag": false, "tag": "newborn" },
-              { "hasTag": false, "tag": "boys" },
-              { "hasTag": false, "tag": "girls" },
-              { "hasTag": false, "tag": "nfl" },
-              { "hasTag": false, "tag": "preorder" },
-              { "hasTag": false, "tag": "backorder" },
+              { "hasTag": true, "tag": "flag:doorbuster" },
+              { "hasTag": false, "tag": "flag:price drop" }
+            ]
+          }
+        }
+      },
+      {
+        "id": "gid://shopify/CartLine/price-drop",
         "quantity": 1,
         "merchandise": {
           "__typename": "ProductVariant",
           "id": "gid://shopify/ProductVariant/222",
           "product": {
             "id": "gid://shopify/Product/200",
-            "productType": "Gift Card",
-            "isGiftCard": true,
+            "productType": "Onesie",
+            "isGiftCard": false,
             "vendor": "Gerber",
             "excludeCheck": false,
             "tagChecks": [
-              { "hasTag": false, "tag": "discount" },
-              { "hasTag": false, "tag": "sale" },
-              { "hasTag": false, "tag": "clearance" },
-              { "hasTag": false, "tag": "markdown" },
-              { "hasTag": false, "tag": "promo" },
-              { "hasTag": false, "tag": "bundle" },
-              { "hasTag": false, "tag": "bogo" },
-              { "hasTag": false, "tag": "bxgy" },
-              { "hasTag": false, "tag": "gift" },
-              { "hasTag": false, "tag": "holiday" },
-              { "hasTag": false, "tag": "flash-sale" },
-              { "hasTag": false, "tag": "doorbuster" },
               { "hasTag": false, "tag": "flag:doorbuster" },
-              { "hasTag": false, "tag": "outlet" },
-              { "hasTag": false, "tag": "overstock" },
-              { "hasTag": false, "tag": "member" },
-              { "hasTag": false, "tag": "vip" },
-              { "hasTag": false, "tag": "loyalty" },
-              { "hasTag": false, "tag": "baby" },
-              { "hasTag": false, "tag": "toddler" },
-              { "hasTag": false, "tag": "kids" },
-              { "hasTag": false, "tag": "infant" },
-              { "hasTag": false, "tag": "newborn" },
-              { "hasTag": false, "tag": "boys" },
-              { "hasTag": false, "tag": "girls" },
-              { "hasTag": false, "tag": "nfl" },
-              { "hasTag": false, "tag": "preorder" },
-              { "hasTag": false, "tag": "backorder" }
+              { "hasTag": true, "tag": "flag:price drop" }
             ]
           }
         }
       },
       {
-        "id": "gid://shopify/CartLine/3",
-        "quantity": 3,
+        "id": "gid://shopify/CartLine/eligible",
+        "quantity": 1,
         "merchandise": {
           "__typename": "ProductVariant",
           "id": "gid://shopify/ProductVariant/333",
           "product": {
             "id": "gid://shopify/Product/300",
-            "productType": "Sleeper",
+            "productType": "Onesie",
             "isGiftCard": false,
             "vendor": "Gerber",
             "excludeCheck": false,
             "tagChecks": [
-              { "hasTag": false, "tag": "discount" },
-              { "hasTag": false, "tag": "sale" },
-              { "hasTag": false, "tag": "clearance" },
-              { "hasTag": false, "tag": "markdown" },
-              { "hasTag": false, "tag": "promo" },
-              { "hasTag": false, "tag": "bundle" },
-              { "hasTag": false, "tag": "bogo" },
-              { "hasTag": false, "tag": "bxgy" },
-              { "hasTag": false, "tag": "gift" },
-              { "hasTag": false, "tag": "holiday" },
-              { "hasTag": false, "tag": "flash-sale" },
-              { "hasTag": false, "tag": "doorbuster" },
               { "hasTag": false, "tag": "flag:doorbuster" },
-              { "hasTag": false, "tag": "outlet" },
-              { "hasTag": false, "tag": "overstock" },
-              { "hasTag": false, "tag": "member" },
-              { "hasTag": false, "tag": "vip" },
-              { "hasTag": false, "tag": "loyalty" },
-              { "hasTag": false, "tag": "baby" },
-              { "hasTag": false, "tag": "toddler" },
-              { "hasTag": false, "tag": "kids" },
-              { "hasTag": false, "tag": "infant" },
-              { "hasTag": false, "tag": "newborn" },
-              { "hasTag": false, "tag": "boys" },
-              { "hasTag": false, "tag": "girls" },
-              { "hasTag": false, "tag": "nfl" },
-              { "hasTag": false, "tag": "preorder" },
-              { "hasTag": false, "tag": "backorder" }
+              { "hasTag": false, "tag": "flag:price drop" }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

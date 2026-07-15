@@ -4,7 +4,7 @@ export const AVAILABLE_FUNCTION_TAGS = [
   'seasonal', 'summer', 'winter', 'spring', 'fall',
   'holiday', 'bogo', 'bxgy', 'buy-one-get-one', 'gift',
   'bestseller', 'limited', 'outlet', 'overstock', 'doorbuster',
-  'flag:doorbuster', 'no discount', 'no discount:strict',
+  'flag:doorbuster', 'flag:price drop', 'no discount', 'no discount:strict',
   'flash-sale', 'member', 'vip', 'loyalty', 'rewards',
   'baby', 'toddler', 'kids', 'infant', 'newborn',
   'boys', 'girls', 'unisex', 'organic', 'essentials',

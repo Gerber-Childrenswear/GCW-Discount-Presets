@@ -9,7 +9,7 @@ const DEFAULT_MESSAGE: &str = "Extra 25% Off Applied!";
 // Tags queryable in input.graphql via hasTags() — configurable via included_tags / exclude_tags:
 // discount, sale, clearance, markdown, promo,
 // bundle, bogo, bxgy, gift,
-// holiday, flash-sale, doorbuster, flag:doorbuster, outlet, overstock,
+// holiday, flash-sale, doorbuster, flag:doorbuster, flag:price drop, outlet, overstock,
 // member, vip, loyalty,
 // baby, toddler, kids, infant, newborn, boys, girls,
 // nfl,
@@ -583,6 +583,72 @@ mod tests {
     }
 
     #[test]
+    fn test_extra_20_excludes_doorbusters_and_price_drops() -> Result<()> {
+        let config = r#"{
+            "percentage": 20,
+            "message": "Extra 20% Off Applied!",
+            "exclude_gift_cards": true,
+            "exclude_tags": ["flag:doorbuster", "flag:price drop"]
+        }"#;
+        let input = make_input(
+            Some(config),
+            vec![
+                make_line(
+                    "doorbuster",
+                    1,
+                    "gid://shopify/Product/100",
+                    "Onesie",
+                    false,
+                    "Gerber",
+                    make_tag_checks(&[("flag:doorbuster", true), ("flag:price drop", false)]),
+                ),
+                make_line(
+                    "price-drop",
+                    1,
+                    "gid://shopify/Product/200",
+                    "Onesie",
+                    false,
+                    "Gerber",
+                    make_tag_checks(&[("flag:doorbuster", false), ("flag:price drop", true)]),
+                ),
+                make_line(
+                    "eligible",
+                    1,
+                    "gid://shopify/Product/300",
+                    "Onesie",
+                    false,
+                    "Gerber",
+                    make_tag_checks(&[("flag:doorbuster", false), ("flag:price drop", false)]),
+                ),
+            ],
+        );
+
+        let result = run_function_with_input(run, &input)?;
+        assert_eq!(result.operations.len(), 1);
+        if let schema::CartOperation::ProductDiscountsAdd(op) = &result.operations[0] {
+            assert_eq!(op.candidates.len(), 1);
+            assert_eq!(
+                op.candidates[0].message.as_deref(),
+                Some("Extra 20% Off Applied!")
+            );
+            assert_eq!(op.candidates[0].targets.len(), 1);
+            let schema::ProductDiscountCandidateTarget::CartLine(target) =
+                &op.candidates[0].targets[0];
+            assert_eq!(target.id, "eligible");
+            if let schema::ProductDiscountCandidateValue::Percentage(value) =
+                &op.candidates[0].value
+            {
+                assert_eq!(value.value, Decimal::from(20.0));
+            } else {
+                panic!("Expected a percentage discount");
+            }
+        } else {
+            panic!("Expected ProductDiscountsAdd");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn test_excluded_vendor() -> Result<()> {
         let input = make_input(
             Some(r#"{"percentage":25,"exclude_vendors":["BadVendor"]}"#),
@@ -803,8 +869,8 @@ mod tests {
 
     #[test]
     fn test_hard_exclusion_tag_excludes_product() -> Result<()> {
-        // A product with excludeCheck=true (e.g. tagged flag:doorbuster or
-        // no discount) must be skipped regardless of other config.
+        // A product with excludeCheck=true (e.g. tagged "no discount")
+        // must be skipped regardless of other config.
         let line_hard_excluded = serde_json::json!({
             "id": "gid://shopify/CartLine/1",
             "quantity": 1,
@@ -821,12 +887,12 @@ mod tests {
                 }
             }
         });
-        let input = make_input(
-            Some(r#"{"percentage":25}"#),
-            vec![line_hard_excluded],
-        );
+        let input = make_input(Some(r#"{"percentage":25}"#), vec![line_hard_excluded]);
         let result = run_function_with_input(run, &input)?;
-        assert!(result.operations.is_empty(), "hard-excluded product should not receive a discount");
+        assert!(
+            result.operations.is_empty(),
+            "hard-excluded product should not receive a discount"
+        );
         Ok(())
     }
 }

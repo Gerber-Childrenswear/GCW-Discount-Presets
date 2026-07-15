@@ -466,3 +466,52 @@ export async function clearShippingProgressMetafield(callShopify, options = {}) 
     };
   }
 }
+
+// Fully removes the app-owned checkout progress metafield (as opposed to
+// clearShippingProgressMetafield, which just writes a disabled/default config
+// and leaves `configured: true` forever). This is what the admin UI's
+// "Delete" controls call, since a soft reset never lets the campaign card
+// disappear or be re-created cleanly.
+export async function deleteShippingProgressMetafield(callShopify) {
+  try {
+    const current = await getShippingProgressMetafield(callShopify);
+    if (!current.ok) return current;
+
+    const response = await callShopify(
+      `mutation DeleteShippingProgress($metafields: [MetafieldIdentifierInput!]!) {
+        metafieldsDelete(identifiers: $metafields) {
+          deletedMetafields { key namespace }
+          userErrors { field message }
+        }
+      }`,
+      {
+        metafields: [
+          { ownerId: current.shopId, namespace: NAMESPACE, key: KEY },
+        ],
+      },
+    );
+
+    const userErrors = response?.result?.data?.metafieldsDelete?.userErrors || [];
+    if (!response?.ok || userErrors.length > 0) {
+      return {
+        ok: false,
+        warning:
+          userErrors[0]?.message ||
+          response?.error ||
+          'Checkout progress delete failed.',
+      };
+    }
+
+    await clearLegacyShippingProgressMetafield(callShopify, current.shopId);
+
+    return { ok: true, config: null };
+  } catch (error) {
+    return {
+      ok: false,
+      warning:
+        error instanceof Error
+          ? error.message
+          : 'Unknown checkout progress delete error.',
+    };
+  }
+}

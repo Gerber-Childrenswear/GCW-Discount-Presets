@@ -26,6 +26,7 @@ import { discountsStore, registerDiscount, unregisterDiscount, getRegisteredGids
 import {
   buildShippingProgressConfig,
   clearShippingProgressMetafield,
+  deleteShippingProgressMetafield,
   getShippingProgressMetafield,
   syncShippingProgressMetafield,
   repairStockup35ShippingProgressMetafield,
@@ -576,12 +577,12 @@ app.delete('/api/checkout-shipping-progress', requireAdmin, async (req, res) => 
 
     const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
     const callGql = makeGqlClient(graphqlUrl, accessToken);
-    const result = await clearShippingProgressMetafield(callGql, { source: 'manual' });
+    const result = await deleteShippingProgressMetafield(callGql);
     if (!result.ok) return res.status(400).json({ error: result.warning });
 
     res.json({ success: true, config: mapCheckoutProgressConfigForApi(result.config) });
   } catch (error) {
-    reportError(error, { area: 'checkout_shipping_progress_disable' });
+    reportError(error, { area: 'checkout_shipping_progress_delete' });
     res.status(500).json({ error: error.message });
   }
 });
@@ -5333,7 +5334,7 @@ app.get('/', async (req, res) => {
                   Save Checkout Bar
                 </button>
                 <button id="cp_disable_btn" class="btn btn-ghost" style="padding:12px 20px;font-size:14px;">
-                  Disable Bar
+                  Delete Bar
                 </button>
                 <span id="cp_status" class="deploy-status-text"></span>
               </div>
@@ -5723,12 +5724,92 @@ app.get('/', async (req, res) => {
                     (remainingMsg ? '<div><strong>Before threshold:</strong> ' + escHtml(remainingMsg) + '</div>' : '') +
                     (successMsg ? '<div style="margin-top:2px;"><strong>Unlocked:</strong> ' + escHtml(successMsg) + '</div>' : '') +
                   '</div>' : '') +
-                  '<div style="margin-top:10px;border-top:1px solid #ccfbf1;padding-top:8px;">' +
+                  '<div style="margin-top:10px;border-top:1px solid #ccfbf1;padding-top:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">' +
                     '<button onclick="document.querySelector(\\'[data-tab=checkout-bar]\\')?.click()" style="background:none;border:none;color:#0f766e;font-size:12px;font-weight:600;cursor:pointer;padding:0;text-decoration:underline;">Edit in Checkout Bar tab &#x2192;</button>' +
+                    '<div style="display:flex;gap:8px;">' +
+                      '<button class="btn btn-ghost checkout-bar-toggle" style="padding:6px 12px;font-size:12px;">' + (cfg.enabled !== false ? 'Pause' : 'Resume') + '</button>' +
+                      '<button class="btn btn-ghost checkout-bar-delete" style="padding:6px 12px;font-size:12px;color:#dc2626;">Delete</button>' +
+                    '</div>' +
                   '</div>' +
                 '</div>' +
               '</div>' +
             '</div>';
+
+            const toggleBtn = slot.querySelector('.checkout-bar-toggle');
+            if (toggleBtn) {
+              toggleBtn.addEventListener('click', async () => {
+                const nextEnabled = cfg.enabled === false;
+                const confirmed = await showConfirmModal(
+                  nextEnabled ? 'Resume Checkout Bar?' : 'Pause Checkout Bar?',
+                  nextEnabled
+                    ? 'The free shipping progress bar will show at checkout again.'
+                    : 'The free shipping progress bar will stop showing at checkout until resumed. Your threshold, messages, and promo code are kept.',
+                  { style: nextEnabled ? 'primary' : 'warning', okLabel: nextEnabled ? 'Resume' : 'Pause' }
+                );
+                if (!confirmed) return;
+                toggleBtn.disabled = true;
+                toggleBtn.textContent = nextEnabled ? 'Resuming…' : 'Pausing…';
+                try {
+                  const headers = await getApiHeaders();
+                  const resp = await fetch(withShopParam('/api/checkout-shipping-progress'), {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                      enabled: nextEnabled,
+                      threshold: cfg.threshold,
+                      promo_code: cfg.promo_code,
+                      show_meter: cfg.show_meter,
+                      show_code_instruction: cfg.show_code_instruction,
+                      starts_at: cfg.starts_at,
+                      ends_at: cfg.ends_at,
+                      remaining_message: cfg.remaining_message,
+                      success_message: cfg.success_message,
+                      code_prompt_message: cfg.code_prompt_message,
+                      code_applied_message: cfg.code_applied_message,
+                    }),
+                  });
+                  const data = await resp.json();
+                  if (!resp.ok) throw new Error(data.error || 'Update failed');
+                  showToast(nextEnabled ? 'Checkout bar resumed' : 'Checkout bar paused', 'success');
+                  loadCheckoutBarCard();
+                  if (typeof loadCheckoutProgressSettings === 'function') loadCheckoutProgressSettings();
+                } catch (err) {
+                  showToast(err.message || 'Could not update checkout bar', 'error');
+                  toggleBtn.disabled = false;
+                  toggleBtn.textContent = nextEnabled ? 'Resume' : 'Pause';
+                }
+              });
+            }
+
+            const deleteBtn = slot.querySelector('.checkout-bar-delete');
+            if (deleteBtn) {
+              deleteBtn.addEventListener('click', async () => {
+                const confirmed = await showConfirmModal(
+                  'Delete Checkout Bar?',
+                  'This permanently removes the free shipping progress bar configuration (threshold, messages, promo code). This cannot be undone.',
+                  { style: 'danger', okLabel: 'Delete' }
+                );
+                if (!confirmed) return;
+                deleteBtn.disabled = true;
+                deleteBtn.textContent = 'Deleting…';
+                try {
+                  const headers = await getApiHeaders();
+                  const resp = await fetch(withShopParam('/api/checkout-shipping-progress'), {
+                    method: 'DELETE',
+                    headers,
+                  });
+                  const data = await resp.json();
+                  if (!resp.ok) throw new Error(data.error || 'Delete failed');
+                  showToast('Checkout bar deleted', 'success');
+                  loadCheckoutBarCard();
+                  if (typeof loadCheckoutProgressSettings === 'function') loadCheckoutProgressSettings();
+                } catch (err) {
+                  showToast(err.message || 'Could not delete checkout bar', 'error');
+                  deleteBtn.disabled = false;
+                  deleteBtn.textContent = 'Delete';
+                }
+              });
+            }
           } catch { slot.innerHTML = ''; }
         }
 
@@ -7863,9 +7944,15 @@ app.get('/', async (req, res) => {
 
           if (disableBtn) {
             disableBtn.addEventListener('click', async () => {
+              const confirmed = await showConfirmModal(
+                'Delete Checkout Bar?',
+                'This permanently removes the free shipping progress bar configuration (threshold, messages, promo code). This cannot be undone — you will need to set it up again from scratch.',
+                { style: 'danger', okLabel: 'Delete' }
+              );
+              if (!confirmed) return;
               const status = document.getElementById('cp_status');
               disableBtn.disabled = true;
-              disableBtn.textContent = 'Disabling...';
+              disableBtn.textContent = 'Deleting...';
               try {
                 const headers = await getApiHeaders();
                 const resp = await fetch(withShopParam('/api/checkout-shipping-progress'), {
@@ -7873,16 +7960,16 @@ app.get('/', async (req, res) => {
                   headers,
                 });
                 const data = await resp.json();
-                if (!resp.ok) throw new Error(data.error || 'Disable failed');
+                if (!resp.ok) throw new Error(data.error || 'Delete failed');
                 applyCheckoutProgressConfig(data.config);
                 if (status) { status.textContent = ''; }
-                showToast('Checkout bar disabled', 'success');
+                showToast('Checkout bar deleted', 'success');
                 loadCheckoutBarCard();
               } catch (err) {
                 if (status) { status.textContent = 'Error: ' + err.message; status.style.color = '#c0392b'; }
               } finally {
                 disableBtn.disabled = false;
-                disableBtn.textContent = 'Disable Bar';
+                disableBtn.textContent = 'Delete Bar';
                 syncCheckoutProgressMode();
               }
             });

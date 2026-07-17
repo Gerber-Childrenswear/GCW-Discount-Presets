@@ -15,8 +15,7 @@ const DEFAULT_MESSAGE: &str = "Extra 25% Off Applied!";
 // nfl,
 // preorder, backorder
 //
-// Hard-exclusion tags via hasAnyTag() (excludeCheck) — always skipped, not configurable:
-// no discount, no discount:strict, final-sale, no-return, DOTW
+// No hardcoded product-tag exclusions. Campaign exclude_tags / included_tags control eligibility.
 
 #[typegen("./schema.graphql")]
 pub mod schema {
@@ -47,15 +46,6 @@ fn run(input: schema::run::Input) -> Result<schema::CartLinesDiscountsGenerateRu
                 _ => return None,
             };
             let product = pv.product();
-
-            // Hard-exclusion fast path: hasAnyTag() covers
-            // no discount, no discount:strict, final-sale, no-return, DOTW.
-            // A single Boolean — no per-tag iteration needed.
-            // Note: flag:doorbuster is NOT here — it is configurable via hasTags()
-            // so doorbuster campaigns can target it via included_tags.
-            if *product.exclude_check() {
-                return None;
-            }
 
             // Only build the tag set if tag filtering is configured — avoids a
             // heap allocation per cart line for discounts that apply to all products.
@@ -429,7 +419,6 @@ mod tests {
                     "productType": product_type,
                     "isGiftCard": is_gift_card,
                     "vendor": vendor,
-                    "excludeCheck": false,
                     "tagChecks": tag_checks
                 }
             }
@@ -868,10 +857,10 @@ mod tests {
     }
 
     #[test]
-    fn test_hard_exclusion_tag_excludes_product() -> Result<()> {
-        // A product with excludeCheck=true (e.g. tagged "no discount")
-        // must be skipped regardless of other config.
-        let line_hard_excluded = serde_json::json!({
+    fn test_no_discount_tag_no_longer_hard_excluded() -> Result<()> {
+        // Former hard-exclusion tags like "no discount" only apply when listed
+        // in campaign exclude_tags. With an empty exclude list they qualify.
+        let line = serde_json::json!({
             "id": "gid://shopify/CartLine/1",
             "quantity": 1,
             "merchandise": {
@@ -882,16 +871,16 @@ mod tests {
                     "productType": "Onesie",
                     "isGiftCard": false,
                     "vendor": "Gerber",
-                    "excludeCheck": true,
                     "tagChecks": []
                 }
             }
         });
-        let input = make_input(Some(r#"{"percentage":25}"#), vec![line_hard_excluded]);
+        let input = make_input(Some(r#"{"percentage":25}"#), vec![line]);
         let result = run_function_with_input(run, &input)?;
-        assert!(
-            result.operations.is_empty(),
-            "hard-excluded product should not receive a discount"
+        assert_eq!(
+            result.operations.len(),
+            1,
+            "products without campaign exclude_tags should receive the discount"
         );
         Ok(())
     }

@@ -17,10 +17,6 @@ query Input {
             productType
             isGiftCard
             vendor
-            excludeCheck: hasAnyTag(tags: [
-              "no discount", "no discount:strict",
-              "final-sale", "no-return", "DOTW"
-            ])
             tagChecks: hasTags(tags: [
               "discount", "sale", "clearance", "markdown", "promo",
               "bundle", "bogo", "bxgy", "gift",

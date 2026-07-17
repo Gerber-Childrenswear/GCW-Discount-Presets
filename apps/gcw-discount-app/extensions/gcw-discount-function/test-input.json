@@ -17,10 +17,15 @@
             "productType": "Onesie",
             "isGiftCard": false,
             "vendor": "Gerber",
-            "excludeCheck": false,
             "tagChecks": [
-              { "hasTag": true, "tag": "flag:doorbuster" },
-              { "hasTag": false, "tag": "flag:price drop" }
+              {
+                "hasTag": true,
+                "tag": "flag:doorbuster"
+              },
+              {
+                "hasTag": false,
+                "tag": "flag:price drop"
+              }
             ]
           }
         }
@@ -36,10 +41,15 @@
             "productType": "Onesie",
             "isGiftCard": false,
             "vendor": "Gerber",
-            "excludeCheck": false,
             "tagChecks": [
-              { "hasTag": false, "tag": "flag:doorbuster" },
-              { "hasTag": true, "tag": "flag:price drop" }
+              {
+                "hasTag": false,
+                "tag": "flag:doorbuster"
+              },
+              {
+                "hasTag": true,
+                "tag": "flag:price drop"
+              }
             ]
           }
         }
@@ -55,10 +65,15 @@
             "productType": "Onesie",
             "isGiftCard": false,
             "vendor": "Gerber",
-            "excludeCheck": false,
             "tagChecks": [
-              { "hasTag": false, "tag": "flag:doorbuster" },
-              { "hasTag": false, "tag": "flag:price drop" }
+              {
+                "hasTag": false,
+                "tag": "flag:doorbuster"
+              },
+              {
+                "hasTag": false,
+                "tag": "flag:price drop"
+              }
             ]
           }
         }

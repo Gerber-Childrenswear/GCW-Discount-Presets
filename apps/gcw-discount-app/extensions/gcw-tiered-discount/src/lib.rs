@@ -283,6 +283,7 @@ fn run(input: schema::run::Input) -> Result<schema::CartLinesDiscountsGenerateRu
     let candidate = schema::ProductDiscountCandidate {
         associated_discount_code: None,
         message: Some(message),
+        prerequisites: None,
         targets,
         value: schema::ProductDiscountCandidateValue::Percentage(schema::Percentage {
             value: Decimal::from(percentage_value),

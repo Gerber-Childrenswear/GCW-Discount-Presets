@@ -6,9 +6,9 @@ import crypto from 'crypto';
 // Once authenticated, a signed cookie persists the session.
 // ---------------------------------------------------------------------------
 
-const APP_PASSWORD = process.env.GCW_APP_PASSWORD || 'Sugi2.0';
+const APP_PASSWORD = (process.env.GCW_APP_PASSWORD || '').trim();
 if (!process.env.GCW_APP_PASSWORD) {
-  console.warn('[Auth] WARNING: GCW_APP_PASSWORD env var not set — using default password. Set this in Render before going live.');
+  console.error('[Auth] GCW_APP_PASSWORD is not set — password authentication is disabled. Set it in the hosting environment.');
 }
 const COOKIE_NAME = 'gcw_auth';
 const COOKIE_SECRET = process.env.SESSION_ENCRYPTION_KEY || process.env.SHOPIFY_API_SECRET || 'gcw-fallback-key';

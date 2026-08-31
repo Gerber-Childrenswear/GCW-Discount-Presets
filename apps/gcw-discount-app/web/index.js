@@ -2447,6 +2447,62 @@ app.get('/api/debug/discounts', requireAdmin, async (req, res) => {
 // =============================================================================
 // Error log API
 // =============================================================================
+const PEANUT_CAMPAIGN_CHANNELS = Object.freeze({
+  peanut_disc_0926: 'disc',
+  peanut_app_0926: 'app',
+  peanut_disp_0926: 'disp',
+  peanut_news_0926: 'news',
+  peanut_soc_0926: 'soc',
+});
+
+app.get('/api/reports/peanut', requireViewer, heavyRateLimit(10), async (req, res) => {
+  try {
+    const { shop, accessToken } = await getOrExchangeToken(req);
+    if (!shop || !accessToken) return res.status(401).json({ error: 'Missing shop or access token.' });
+
+    const graphqlUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+    const callGql = makeGqlClient(graphqlUrl, accessToken);
+    const response = await callGql(`
+      query PeanutCampaignOrders {
+        orders(first: 100, reverse: true, sortKey: PROCESSED_AT) {
+          nodes {
+            name
+            processedAt
+            displayFinancialStatus
+            customAttributes { key value }
+          }
+        }
+      }
+    `);
+    if (!response.ok) return res.status(502).json({ error: response.error || 'Unable to query Shopify orders.' });
+
+    const scannedOrders = response.result.data?.orders?.nodes || [];
+    const orders = scannedOrders.flatMap((order) => {
+      const attributes = Object.fromEntries((order.customAttributes || []).map(({ key, value }) => [key, value]));
+      const token = attributes._campaign_token;
+      const medium = PEANUT_CAMPAIGN_CHANNELS[token];
+      if (!medium) return [];
+      return [{
+        orderName: order.name,
+        processedAt: order.processedAt,
+        financialStatus: order.displayFinancialStatus,
+        token,
+        medium,
+      }];
+    });
+    const byChannel = Object.values(PEANUT_CAMPAIGN_CHANNELS).reduce((summary, medium) => {
+      summary[medium] = 0;
+      return summary;
+    }, {});
+    orders.forEach(({ medium }) => { byChannel[medium] += 1; });
+
+    res.json({ success: true, scannedOrders: scannedOrders.length, byChannel, orders });
+  } catch (error) {
+    reportError(error, { area: 'peanut_report' });
+    res.status(500).json({ error: 'Unable to load Peanut campaign orders.' });
+  }
+});
+
 app.get('/api/errors/log', requireAdmin, (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, ERROR_LOG_MAX);
   res.json({ success: true, errors: errorLog.slice(0, limit), total: errorLog.length });
@@ -4808,6 +4864,7 @@ app.get('/', async (req, res) => {
           ${permissions.canActivate ? '<button class="tab" data-tab="checkout-bar">Checkout Bar</button>' : ''}
           ${permissions.canActivate ? '<button class="tab" data-tab="advanced">Advanced Functions</button>' : ''}
           ${permissions.canManageUsers ? '<button class="tab" data-tab="users">Users</button>' : ''}
+          <button class="tab" data-tab="peanut-report">Peanut Report</button>
           <button class="tab" data-tab="debuglog">Debug Log</button>
         </div>
 
@@ -5542,6 +5599,22 @@ app.get('/', async (req, res) => {
           </div>
         </div>
         ` : ''}
+
+        <div class="tab-panel" id="tab-peanut-report">
+          <div class="section">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;">
+              <div>
+                <div class="section-title" style="margin:0;">Peanut Campaign</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin:6px 0 0;">Recent orders with an approved Peanut campaign attribute.</p>
+              </div>
+              <button class="action-btn secondary" id="peanutReportRefresh" style="padding:8px 16px;font-size:12px;cursor:pointer;">&#x21BB; Refresh</button>
+            </div>
+            <div class="summary-grid" id="peanutReportSummary"></div>
+            <div id="peanutReportOrders" class="deployed-list" style="margin-top:20px;">
+              <div class="deployed-placeholder">Open this tab to load campaign orders.</div>
+            </div>
+          </div>
+        </div>
 
         <div class="tab-panel" id="tab-debuglog">
           <div class="section">
@@ -6867,8 +6940,43 @@ app.get('/', async (req, res) => {
               if (panel) {
                 panel.classList.add('active');
               }
+              if (target === 'peanut-report') loadPeanutReport();
             });
           });
+        }
+
+        function escReport(value) {
+          return String(value || '').replace(/[&<>"']/g, function(character) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character];
+          });
+        }
+
+        async function loadPeanutReport() {
+          const summary = document.getElementById('peanutReportSummary');
+          const list = document.getElementById('peanutReportOrders');
+          if (!summary || !list) return;
+          try {
+            list.innerHTML = '<div class="deployed-placeholder">Loading campaign orders...</div>';
+            const headers = await getApiHeaders();
+            const response = await fetch(withShopParam('/api/reports/peanut'), { headers });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load Peanut report');
+            const channels = ['disc', 'app', 'disp', 'news', 'soc'];
+            summary.innerHTML = channels.map(function(channel) {
+              return '<div class="summary-card" style="background:#0F766E;"><div class="summary-value">' + Number(data.byChannel[channel] || 0) + '</div><div class="summary-label">' + channel.toUpperCase() + '</div></div>';
+            }).join('');
+            if (!data.orders.length) {
+              list.innerHTML = '<div class="deployed-placeholder">No Peanut-attributed orders in the most recent 100 Shopify orders.</div>';
+              return;
+            }
+            list.innerHTML = data.orders.map(function(order) {
+              const placedAt = order.processedAt ? new Date(order.processedAt).toLocaleString() : 'Not processed';
+              return '<div class="deployed-item"><div><strong>' + escReport(order.orderName) + '</strong><div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + escReport(placedAt) + ' &middot; ' + escReport(order.financialStatus) + '</div></div><div><span class="badge">' + escReport(order.medium.toUpperCase()) + '</span></div></div>';
+            }).join('');
+          } catch (error) {
+            reportClientError(error, { area: 'peanut_report' });
+            list.innerHTML = '<div class="deployed-placeholder">Unable to load Peanut campaign orders.</div>';
+          }
         }
         
         // ========================
@@ -8570,6 +8678,10 @@ app.get('/', async (req, res) => {
           const debugRefreshBtn = document.getElementById('debugLogRefresh');
           if (debugRefreshBtn) {
             debugRefreshBtn.addEventListener('click', loadDebugLog);
+          }
+          const peanutReportRefreshBtn = document.getElementById('peanutReportRefresh');
+          if (peanutReportRefreshBtn) {
+            peanutReportRefreshBtn.addEventListener('click', loadPeanutReport);
           }
           const debugClearBtn = document.getElementById('debugLogClear');
           if (debugClearBtn) {

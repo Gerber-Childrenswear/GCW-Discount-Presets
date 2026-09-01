@@ -1,17 +1,12 @@
 import crypto from 'crypto';
 
-// ---------------------------------------------------------------------------
-// Simple password-based auth: a single password grants full admin access.
-// The password is compared using constant-time comparison to prevent timing attacks.
-// Once authenticated, a signed cookie persists the session.
-// ---------------------------------------------------------------------------
-
-const APP_PASSWORD = (process.env.GCW_APP_PASSWORD || '').trim();
-if (!process.env.GCW_APP_PASSWORD) {
-  console.error('[Auth] GCW_APP_PASSWORD is not set — password authentication is disabled. Set it in the hosting environment.');
-}
+const ALLOWED_GITHUB_LOGIN = 'ncassidy233';
 const COOKIE_NAME = 'gcw_auth';
-const COOKIE_SECRET = process.env.SESSION_ENCRYPTION_KEY || process.env.SHOPIFY_API_SECRET || 'gcw-fallback-key';
+const COOKIE_SECRET = process.env.SESSION_ENCRYPTION_KEY || '';
+
+if (!COOKIE_SECRET) {
+  console.error('[Auth] SESSION_ENCRYPTION_KEY is required for GitHub authentication.');
+}
 
 // Legacy exports kept so existing code that references them doesn't break
 export const ROLES = {
@@ -22,7 +17,7 @@ export const ROLES = {
 export const userRoles = {};
 
 export function seedRolesFromEnv() {
-  console.log('[Auth] Password-based auth active. Single password grants full admin access.');
+  console.log(`[Auth] GitHub-only access enabled for ${ALLOWED_GITHUB_LOGIN}.`);
 }
 
 export function getUserRole(_email) {
@@ -52,56 +47,20 @@ function verifySignedValue(signed) {
   return null;
 }
 
-// Check if the request is authenticated (has valid cookie OR valid password header)
 export function isAuthenticated(req) {
-  // 1. Check signed cookie
   const cookie = req.cookies?.[COOKIE_NAME];
-  if (cookie) {
-    const val = verifySignedValue(cookie);
-    if (val === 'authenticated') return true;
-  }
-  // 2. Check password in custom header (for API calls from the embedded frontend)
-  const headerPw = req.headers['x-gcw-password'];
-  if (headerPw && headerPw.length === APP_PASSWORD.length) {
-    try {
-      if (crypto.timingSafeEqual(Buffer.from(headerPw), Buffer.from(APP_PASSWORD))) return true;
-    } catch { /* length mismatch */ }
-  }
-  // 3. Accept valid Shopify session tokens (App Bridge / URL fallback)
-  const idTokenHeader = req.headers['x-shopify-id-token'];
-  if (idTokenHeader && verifySessionToken(String(idTokenHeader))) return true;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const bearer = authHeader.slice(7);
-    if (bearer && verifySessionToken(bearer)) return true;
-  }
-  return false;
+  return Boolean(cookie && verifySignedValue(cookie) === ALLOWED_GITHUB_LOGIN);
 }
 
-// Set the auth cookie on the response
-export function setAuthCookie(res) {
-  res.cookie(COOKIE_NAME, signValue('authenticated'), {
+export function setAuthCookie(res, githubLogin) {
+  if (githubLogin !== ALLOWED_GITHUB_LOGIN) return;
+  res.cookie(COOKIE_NAME, signValue(githubLogin), {
     httpOnly: true,
     secure: true,
     sameSite: 'none', // Required for Shopify embedded iframes
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     path: '/',
   });
-}
-
-// Verify password (constant-time)
-export function verifyPassword(password) {
-  if (!password || typeof password !== 'string') return false;
-  if (password.length !== APP_PASSWORD.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(password), Buffer.from(APP_PASSWORD));
-  } catch { return false; }
-}
-
-// JWT verify — kept so token exchange still works for Shopify OAuth
-{
-  const _s = (process.env.SHOPIFY_API_SECRET || '').trim();
-  console.log(`[JWT-BOOT] SHOPIFY_API_SECRET loaded: ${_s ? 'yes' : 'no'} (len=${_s.length})`);
 }
 
 export function verifySessionToken(token) {
@@ -146,15 +105,14 @@ export function emailFromIdToken(token) {
 // Middleware: attach role (always admin once authenticated)
 export function attachUserRole(req, res, next) {
   req.gcwAuthenticated = isAuthenticated(req);
-  req.userEmail = null;
+  req.userEmail = req.gcwAuthenticated ? ALLOWED_GITHUB_LOGIN : null;
   req.userRole = req.gcwAuthenticated ? 'admin' : 'viewer';
   next();
 }
 
-// All three permission levels now just check the password auth
 function requireAuth(req, res, next) {
   if (req.gcwAuthenticated) return next();
-  return res.status(403).json({ success: false, error: 'Authentication required. Please log in with the app password.' });
+  return res.status(403).json({ success: false, error: 'GitHub authentication required.' });
 }
 
 export const requireViewer  = requireAuth;

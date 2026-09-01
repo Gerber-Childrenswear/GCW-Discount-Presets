@@ -1,10 +1,10 @@
-import express, { Router } from 'express';
+import { Router } from 'express';
 import crypto from 'crypto';
 import { appUrl, SHOPIFY_SCOPES } from '../config.js';
 import { shopSessions, persistSessions, setRuntimeAccessToken } from '../session-store.js';
 import { verifyHmac, redactForLogs } from '../security.js';
 import { reportError } from '../error-logger.js';
-import { verifyPassword, setAuthCookie, isAuthenticated } from '../rbac.js';
+import { setAuthCookie, isAuthenticated } from '../rbac.js';
 
 const router = Router();
 
@@ -141,19 +141,53 @@ router.get('/api/auth/callback', async (req, res) => {
   }
 });
 
-// Password login endpoint
-router.post('/api/auth/password', express.json(), (req, res) => {
-  const { password } = req.body || {};
-  if (!password) {
-    return res.status(400).json({ success: false, error: 'Password is required' });
+router.get('/api/auth/github', (req, res) => {
+  const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
+  if (!clientId || !process.env.SESSION_ENCRYPTION_KEY) {
+    return res.status(503).send('GitHub authentication is not configured.');
   }
-  if (verifyPassword(password)) {
-    setAuthCookie(res);
-    console.log('[Auth] Password login successful');
-    return res.json({ success: true });
+  const state = crypto.randomUUID();
+  shopSessions.githubOAuthState = state;
+  persistSessions();
+  const redirectUri = `${appUrl}/api/auth/github/callback`;
+  res.redirect(`https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`);
+});
+
+router.get('/api/auth/github/callback', async (req, res) => {
+  const { code, state } = req.query;
+  if (!code || !state || state !== shopSessions.githubOAuthState) {
+    return res.status(403).send('Invalid GitHub authentication request.');
   }
-  console.warn('[Auth] Password login failed (wrong password)');
-  return res.status(401).json({ success: false, error: 'Incorrect password' });
+  delete shopSessions.githubOAuthState;
+  persistSessions();
+  try {
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_OAUTH_CLIENT_ID,
+        client_secret: process.env.GITHUB_OAUTH_CLIENT_SECRET,
+        code,
+      }),
+    });
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenData.access_token) throw new Error('GitHub token exchange failed');
+    const userResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: 'Bearer ' + tokenData.access_token,
+        Accept: 'application/vnd.github+json',
+      },
+    });
+    const user = await userResponse.json();
+    if (!userResponse.ok || user.login !== 'ncassidy233') {
+      return res.status(403).send('This GitHub account is not authorized.');
+    }
+    setAuthCookie(res, user.login);
+    return res.redirect('/');
+  } catch (error) {
+    reportError(error, { area: 'github_oauth_callback' });
+    return res.status(502).send('GitHub authentication failed.');
+  }
 });
 
 // Check auth status

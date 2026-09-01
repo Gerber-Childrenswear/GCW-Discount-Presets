@@ -49,7 +49,15 @@ function verifySignedValue(signed) {
 
 export function isAuthenticated(req) {
   const cookie = req.cookies?.[COOKIE_NAME];
-  return Boolean(cookie && verifySignedValue(cookie) === ALLOWED_GITHUB_LOGIN);
+  if (cookie && verifySignedValue(cookie) === ALLOWED_GITHUB_LOGIN) return true;
+
+  const idToken = req.headers['x-shopify-id-token'];
+  const authorization = req.headers.authorization;
+  const bearerToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : null;
+  return Boolean(
+    (idToken && verifySessionToken(String(idToken))) ||
+    (bearerToken && verifySessionToken(bearerToken)),
+  );
 }
 
 export function setAuthCookie(res, githubLogin) {
@@ -104,17 +112,27 @@ export function emailFromIdToken(token) {
 
 // Middleware: attach role (always admin once authenticated)
 export function attachUserRole(req, res, next) {
-  req.gcwAuthenticated = isAuthenticated(req);
-  req.userEmail = req.gcwAuthenticated ? ALLOWED_GITHUB_LOGIN : null;
-  req.userRole = req.gcwAuthenticated ? 'admin' : 'viewer';
+  const cookie = req.cookies?.[COOKIE_NAME];
+  const isGitHubAdmin = cookie && verifySignedValue(cookie) === ALLOWED_GITHUB_LOGIN;
+  req.gcwAuthenticated = Boolean(isGitHubAdmin || isAuthenticated(req));
+  req.userEmail = isGitHubAdmin ? ALLOWED_GITHUB_LOGIN : null;
+  req.userRole = isGitHubAdmin ? 'admin' : req.gcwAuthenticated ? 'builder' : 'viewer';
   next();
 }
 
-function requireAuth(req, res, next) {
+function requireViewer(req, res, next) {
   if (req.gcwAuthenticated) return next();
   return res.status(403).json({ success: false, error: 'GitHub authentication required.' });
 }
 
-export const requireViewer  = requireAuth;
-export const requireBuilder = requireAuth;
-export const requireAdmin   = requireAuth;
+function requireBuilder(req, res, next) {
+  if (req.userRole === 'admin' || req.userRole === 'builder') return next();
+  return res.status(403).json({ success: false, error: 'A valid Shopify app session is required.' });
+}
+
+function requireAdmin(req, res, next) {
+  if (req.userRole === 'admin') return next();
+  return res.status(403).json({ success: false, error: 'GitHub administrator authentication required.' });
+}
+
+export { requireViewer, requireBuilder, requireAdmin };

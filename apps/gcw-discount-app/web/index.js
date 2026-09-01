@@ -587,7 +587,7 @@ app.delete('/api/checkout-shipping-progress', requireAdmin, async (req, res) => 
   }
 });
 
-app.post('/api/function-engine/deploy', requireAdmin, heavyRateLimit(5), async (req, res) => {
+app.post('/api/function-engine/deploy', requireBuilder, heavyRateLimit(5), async (req, res) => {
   try {
     const {
       title, percentage, message, included_tags, exclude_tags,
@@ -1745,7 +1745,7 @@ app.put('/api/deployed-discount/:discountNodeId/update-config', requireAdmin, as
 // =============================================================================
 
 // Deploy a new shipping function discount — ADMIN ONLY
-app.post('/api/shipping-function/deploy', requireAdmin, async (req, res) => {
+app.post('/api/shipping-function/deploy', requireBuilder, async (req, res) => {
   try {
     const { title, threshold, message, starts_at, ends_at, show_checkout_progress,
             combines_with_order, combines_with_product, combines_with_shipping } = req.body;
@@ -2059,7 +2059,7 @@ app.get('/api/functions/list', requireViewer, async (req, res) => {
 // TIERED DISCOUNT ENGINE — spend-more-save-more via tiers
 // =============================================================================
 
-app.post('/api/tiered-discount/deploy', requireAdmin, async (req, res) => {
+app.post('/api/tiered-discount/deploy', requireBuilder, async (req, res) => {
   try {
     const { title, tiers, mode, message, exclude_gift_cards, starts_at, ends_at,
             combines_with_order, combines_with_product, combines_with_shipping,
@@ -2214,7 +2214,7 @@ app.delete('/api/tiered-discount/:discountId', requireAdmin, async (req, res) =>
 // BUY X GET Y ENGINE — BXGY discount function
 // =============================================================================
 
-app.post('/api/bxgy-discount/deploy', requireAdmin, async (req, res) => {
+app.post('/api/bxgy-discount/deploy', requireBuilder, async (req, res) => {
   try {
     const { title, buy_quantity, get_quantity, get_percentage, qualifying_tags, discount_cheapest,
             message, exclude_gift_cards, starts_at, ends_at,
